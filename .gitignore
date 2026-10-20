@@ -1,0 +1,5 @@
+node_modules/
+dist/
+mac/.build/
+scratch/
+.DS_Store

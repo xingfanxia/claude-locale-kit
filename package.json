@@ -1,0 +1,15 @@
+{
+  "name": "claude-locale-kit",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Choose the time zone and locale that Claude Code and claude.ai see on your machine.",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "build:mac": "sh scripts/build-mac.sh",
+    "test": "node scripts/build.mjs --check && node --test tests/",
+    "test:swift": "swift test --package-path mac"
+  },
+  "devDependencies": {}
+}
