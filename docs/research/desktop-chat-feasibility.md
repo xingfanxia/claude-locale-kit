@@ -1,23 +1,26 @@
 # Claude Desktop Chat: feasibility of a chosen time zone and locale
 
-Status: **not supported; runtime proof blocked on this machine.** Static analysis only. Nothing was
-launched, patched, or reconfigured. The user's running Claude Desktop was not touched.
+Status: **Chat coverage not established.** Desktop Chat is a required surface. Two candidate routes remain open,
+and both need runtime validation in an independent test environment. The user has chosen a separate macOS VM or
+test account; that environment has not been confirmed yet, and no runtime test has run.
 
-Analysed build: Claude Desktop 2.42304.0 (`com.anthropic.claudefordesktop`, team `Q6L2SF6YDW`),
-analysed 2026-10-20. Every finding below is tied to this build and may change in later versions.
+Method: static inspection of the shipped app only. Nothing was launched, patched or reconfigured, and the user's
+running Desktop was not touched. Analysed build: Claude Desktop 2.42304.0 (`com.anthropic.claudefordesktop`, team
+`Q6L2SF6YDW`), inspected 2026-10-20. All findings are tied to this build.
 
-## Answer
+Labels used below: **Observed** = seen in shipped code or files. **Inferred** = a reasoned expectation not yet
+tested. **Unknown** = not determined.
 
-| Route | Verdict | Why |
-|---|---|---|
-| Extension, plugin, CDP or script injection into the Chat renderer | **Not possible without bypassing the app's protections; out of scope** | Debug and network-override switches make the app exit at startup unless a signed developer token is present. Fuses enforce asar integrity and disable RunAsNode/inspect. We do not patch, re-sign or flip fuses. |
-| Isolated test instance on this Mac (separate data folder) | **Cannot be established safely** | `CLAUDE_USER_DATA_DIR` is ignored in signed builds. `--user-data-dir` is not refused, but startup still writes outside the data folder (URL-scheme registration, browser native-host manifests), shares the bundle's Keychain item, and routes `claude://` login callbacks by bundle ID. See "Isolation blockers". |
-| Trusted local proxy (`--proxy-server`) | **Transport only; not a Chat feature** | `--proxy-server` is accepted (the app emits it itself from managed config). Reading or changing Chat bodies needs a trusted CA, which is excluded here. A proxy cannot change what the renderer's JavaScript reads, and the native locale hand-off (below) never crosses the network as a header. Not recommended, and request-body rewriting is not something this kit will build. |
-| Per-launch environment (`open -a Claude --env TZ=… --args -AppleLanguages '(en-US)'`) after the user quits Desktop | **Only candidate on a supported surface; unproven** | No switch in this command is on the refusal list. The main process's Node reads `TZ`. Renderer `Intl`, `app.getPreferredSystemLanguages()`, and what claude.ai then sends all need runtime proof. |
+## Summary by route
 
-So for Chat, the kit cannot claim coverage today. The browser extension on claude.ai remains the supported Chat surface.
+| Route | Status |
+|---|---|
+| Standard Chromium debugging (CDP) and network-override switches | **Observed blocked.** The app exits at startup when these switches are present without a signed developer token. Other injection routes were not evaluated. We do not bypass the token check, patch the binary, or change fuses. |
+| Same-user isolated instance on the current Mac | **Not established.** The blockers inspected are listed below. The user did not select a supervised restart of their own Desktop. |
+| Per-launch environment: `open -a Claude --env TZ=… --args -AppleLanguages '(en-US)'` (or `--lang`) | **Candidate.** No switch in it is on the observed refusal list. Whether the Chat renderer and its outgoing requests follow it is unknown. |
+| User-trusted local proxy (`--proxy-server`) that rewrites time zone/locale fields | **Candidate.** The switch is not refused. It requires the user to choose to trust a local CA, and runtime validation of which fields exist and whether rewriting them is accepted. Whether certificate pinning applies is unknown. |
 
-## Evidence
+## Observations
 
 Hashes (SHA-256):
 
@@ -29,76 +32,80 @@ Hashes (SHA-256):
 
 Offsets are character offsets into the extracted file.
 
-1. **Startup refusal.** `index.pre.js` ~808475: the denylist `LZ` = remote-debugging-port, remote-debugging-pipe,
-   ignore-certificate-errors, host-resolver-rules, host-rules, disable-web-security, log-net-log, net-log-capture-mode,
-   ssl-key-log-file, renderer/utility/zygote cmd prefixes, gpu-launcher, browser-subprocess-path. At ~904201,
-   `zZ(process.argv) && !JZ()` writes "refusing to start" and calls `process.exit(1)`. `JZ` checks a signed developer
-   token. Not in `LZ`: `proxy-server`, `proxy-pac-url`, `lang`, `user-data-dir`, `-AppleLanguages`.
-2. **Data folder relocation.** `index.pre.js` ~904433: in packaged builds without the token, `UZ` deletes
-   `CLAUDE_USER_DATA_DIR`, `SSLKEYLOGFILE`. `a7()` compares `userData` with the default path; a relocated folder is
-   recorded as "userData relocated", which only disables local pairing. It does not exit. `index.chunk-B8B2Bgah.js`
-   ~5042 logs that signed builds ignore `CLAUDE_USER_DATA_DIR`.
-3. **No Electron single-instance lock.** No `requestSingleInstanceLock` in any of the 378 main-process bundles.
-   `second-instance` appears only in the Linux XDG activation hand-off (`index.chunk-muI2IV6k.js` ~3863617). On macOS,
-   LaunchServices activates the existing instance for `open -a`; starting the binary directly while Desktop runs would
-   create a second process on the same default data folder.
-4. **Writes outside the data folder at startup.** `index.chunk-muI2IV6k.js` ~6760566: `l4a()` calls
+1. **Startup refusal.** `index.pre.js` ~808475 defines the denylist `LZ`: remote-debugging-port,
+   remote-debugging-pipe, ignore-certificate-errors, host-resolver-rules, host-rules, disable-web-security,
+   log-net-log, net-log-capture-mode, ssl-key-log-file, the renderer/utility/zygote cmd prefixes, gpu-launcher, and
+   browser-subprocess-path. At ~904201, `zZ(process.argv) && !JZ()` prints "refusing to start" and calls
+   `process.exit(1)`. `JZ` checks a signed developer token. Not in `LZ`: `proxy-server`, `proxy-pac-url`, `lang`,
+   `user-data-dir`, `-AppleLanguages`.
+2. **Data folder.** `index.pre.js` ~904433: in packaged builds without the token, `UZ` deletes
+   `CLAUDE_USER_DATA_DIR` and `SSLKEYLOGFILE` from the environment. `a7()` compares `userData` with the default path,
+   and a relocated folder is recorded as "userData relocated" (this disables local pairing; it does not exit).
+   `index.chunk-B8B2Bgah.js` ~5042 logs that signed builds ignore `CLAUDE_USER_DATA_DIR`.
+3. **Single instance.** No `requestSingleInstanceLock` call was found in the 378 main-process bundles.
+   `second-instance` appears only in a Linux XDG activation hand-off (`index.chunk-muI2IV6k.js` ~3863617).
+4. **Startup side effects outside the data folder.** `index.chunk-muI2IV6k.js` ~6760566: `l4a()` calls
    `setAsDefaultProtocolClient` for the app's URL schemes with `keepExistingDefault: false`. ~3928622 to ~3929189:
-   `HDr()` installs or **removes** the Claude browser native-host manifest in `~/Library/Application Support/<browser>/NativeMessagingHosts`
-   for Chrome, Brave, Chromium, Arc, Vivaldi and Opera, depending on that instance's state.
-5. **Login callback routing.** ~6774057: `app.on("open-url")` handles `claude://` links. LaunchServices delivers
-   them by bundle ID, so a test instance's login can land in the user's running instance.
-6. **Native locale hand-off to the Chat renderer.** ~4093898: `rK()` builds `--desktop-managed-config=` JSON with
-   `preferredSystemLanguages: app.getPreferredSystemLanguages()` (normalised by `LLr`), which reaches the renderer as an
-   argument, not as an HTTP header. ~1680271: app UI language is chosen from `getPreferredSystemLanguages()` /
-   `getLocale()`. ~5123860: diagnostics include `getLocale()` and `getSystemLocale()`.
-7. **Desktop sets TZ for Claude Code children.** `index.chunk-CB6cNSrW.js` ~374002 and ~296089:
-   `TZ: Intl.DateTimeFormat().resolvedOptions().timeZone` in the env for Code/agent sessions and VM shells. A
-   Desktop started with a different `TZ` would therefore pass that zone to its Code tab too. This is unverified.
-8. **Proxy.** `index.pre.js` ~882271: `H6` maps managed proxy config to `proxy-server` + `proxy-bypass-list` or
-   `proxy-pac-url`. `setCertificateVerifyProc` appears only on the `local-pairing` partition (~3914948). That is a
-   bounded search, not proof that no pinning exists.
+   `HDr()` installs or removes the Claude browser native-host manifest in each supported browser's
+   `NativeMessagingHosts` folder (Chrome, Brave, Chromium, Arc, Vivaldi, Opera).
+5. **URL callbacks.** ~6774057: `app.on("open-url")` handles `claude://` links.
+6. **Native locale to the Chat renderer.** ~4093898: `rK()` builds a `--desktop-managed-config=` argument whose JSON
+   includes `preferredSystemLanguages` from `app.getPreferredSystemLanguages()`. ~1680271: the app UI language is
+   picked from `getPreferredSystemLanguages()` / `getLocale()`. ~5123860: diagnostics text includes `getLocale()` and
+   `getSystemLocale()`.
+7. **TZ for Claude Code children.** `index.chunk-CB6cNSrW.js` ~374002 and ~296089:
+   `TZ: Intl.DateTimeFormat().resolvedOptions().timeZone` is set in the environment of Code/agent sessions and VM shells.
+8. **Proxy and certificates.** `index.pre.js` ~882271: `H6` maps managed proxy config to `proxy-server` +
+   `proxy-bypass-list` or `proxy-pac-url`. `setCertificateVerifyProc` was found only on the `local-pairing`
+   partition (~3914948). This was a bounded search and does not show that no pinning exists.
 9. **Fuses** (Electron Framework sentinel, wire v1): RunAsNode off, NODE_OPTIONS off, node CLI inspect off,
-   embedded asar integrity **on**, OnlyLoadAppFromAsar **on**, cookie encryption on.
+   embedded asar integrity on, OnlyLoadAppFromAsar on, cookie encryption on.
 
-## Isolation blockers on this Mac
+## Inferences and unknowns
 
-A runtime spike needs an instance that cannot touch the user's profile, focus or credentials. On this Mac:
+- Inferred: a second process started directly while Desktop runs would use the same default data folder
+  (from 2 and 3).
+- Inferred: an instance with a relocated `userData` would still perform the side effects in 4. The URL-scheme
+  registration, and a possible removal of the user's browser native-host manifests, would leave that instance's
+  folder. Electron `safeStorage` on macOS keys its Keychain item by app name, so the instance would share the user's
+  Keychain item. LaunchServices routes `claude://` callbacks by bundle ID, so the instance's login could reach the
+  user's running instance. These are the reasons same-user isolation was not established.
+- Inferred: a Desktop launched with `TZ=B` would pass `B` to its Code tab (from 7, because the main process's Node
+  reads `TZ`). Not tested.
+- Unknown: whether Chromium's renderer on macOS adopts `TZ` from the environment, and whether `-AppleLanguages`
+  or `--lang` changes `getPreferredSystemLanguages()` and `navigator.languages`.
+- Unknown: which time zone and locale fields Chat traffic contains. The native locale reaches the renderer as an
+  argument (6), not as a header. The page can still read that value and put it into later requests, so a proxy
+  that only looks at headers could miss it.
+- Unknown: whether a rewriting proxy is accepted end to end (pinning, integrity checks, consistency checks).
 
-- `CLAUDE_USER_DATA_DIR` is dropped without a signed developer token (finding 2). We will not obtain or forge one.
-- Even if `--user-data-dir` relocates `userData` (Electron behaviour, unverified for this build), startup still
-  re-registers URL schemes and can delete the user's browser native-host manifests (finding 4). That would break
-  their Claude in Chrome setup.
-- Electron `safeStorage` on macOS uses one Keychain item per app name, not per data folder, so a test instance would
-  read the user's Keychain item. That crosses the credential boundary.
-- Login callbacks go to the running instance (finding 5), and the test window would open in the user's workspace.
+## Prerequisites for runtime validation
 
-Missing runtime prerequisites, any one of which unblocks a bounded test:
+Selected by the user: an **independent macOS VM or separate macOS test account**, with its own home, Keychain,
+LaunchServices database and browser folders, and a **test Claude login** that the user completes there. Its
+availability is being confirmed; no runtime step runs before that.
 
-1. A **separate macOS user account or macOS VM** (its own home, Keychain, LaunchServices database and browser
-   folders), with a **test Claude account** signed in there by the user; or
-2. explicit user consent to quit and relaunch **their own** Desktop for a supervised test (currently forbidden).
+## Bounded test plan (independent environment only)
 
-## Bounded test plan (for the isolated macOS user or VM only)
+Any CA trust is installed only inside that environment, by the user's choice. Captures cover only the flows
+exercised, so results are stated as field coverage observed for those flows. No capture proves the absence of
+other signals.
 
-Observation only; nothing is rewritten. CA trust is installed only inside the VM or test user, by user decision.
+1. **Baseline.** Normal launch (system zone A, language L). Start a Chat and run a fixed set of flows (new chat,
+   send, attach a file, open settings). Capture through a logging proxy
+   (`open -a Claude --args --proxy-server=http://127.0.0.1:PORT`, CA trusted in that environment only). List every
+   field or header carrying a zone, offset, date string or locale, per host.
+2. **Per-launch route.** Quit, then relaunch with `--env TZ=B --args -AppleLanguages '(en-US)'`; repeat the same
+   flows and capture. Then repeat with `--lang=en-US`. Also record the Code tab's `echo $TZ` and its date line.
+3. **Proxy route.** With the baseline launch, rewrite only the fields found in step 1 to B / en-US. Record whether
+   requests succeed, and whether any listed field keeps A/L.
+4. **Report per route.** For each field found in step 1: changed / unchanged / not present, for the tested flows
+   only. Note residual A/L anywhere (for example `getSystemLocale()` in diagnostics).
 
-1. Baseline: start Desktop normally (system zone A, system language L). Record the Chat renderer's observed values
-   indirectly: start a new chat and capture outgoing claude.ai API requests through a read-only logging proxy
-   (`open -a Claude --args --proxy-server=http://127.0.0.1:PORT`, CA trusted in the VM only). Note every
-   timezone or locale field in bodies and headers, and every non-claude.ai telemetry host contacted.
-2. Quit Desktop. Relaunch with `open -a Claude --env TZ=B --args -AppleLanguages '(en-US)'`. Repeat the capture.
-3. Compare runs. **Renderer covered** = request fields derived from the page (for example a body `timezone`/`locale`)
-   change to B/en-US. **All traffic covered** = also no residual A/L in native telemetry or diagnostics
-   (`getSystemLocale()` is expected to stay L, which makes "all traffic" unlikely). Also check the Code tab:
-   `echo $TZ` in its shell and its `Today's date` line.
-4. Repeat with `--lang=en-US` instead of `-AppleLanguages`, to record which one Chromium on macOS honours.
+## Decision after validation
 
-## Next implementation choice
-
-- If step 3 shows renderer coverage: add a **"Relaunch Claude Desktop with this profile"** action to the Mac
-  companion. It refuses while Desktop is running (checked by bundle ID) and asks the user to quit it first. It never
-  quits the app itself. It then runs the `open --env … --args …` form above. The coverage table would read "Chat
-  renderer: covered for that launch; native system locale: not covered", and normal launches revert.
-- If not: Desktop Chat stays **unsupported**, and the documented path is claude.ai in Chrome with the extension.
-- Either way: no CDP, no injection, no proxy rewriting, no CA installs on the user's system, no fuse or binary changes.
+- The per-launch route changes the step-1 fields → candidate product action: "Relaunch Claude Desktop with this
+  profile" in the Mac companion. It refuses while Desktop is running and never quits the app itself.
+- The proxy route is needed → a separate user decision on local CA trust and on running a local proxy. It would
+  stay limited to time zone and locale fields: no identifiers, credentials or other content.
+- Neither works → the gap is reported with the step-4 table; no coverage claim.
