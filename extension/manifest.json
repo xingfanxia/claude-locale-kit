@@ -1,0 +1,14 @@
+{
+  "manifest_version": 3,
+  "name": "__MSG_extName__",
+  "short_name": "__MSG_extShortName__",
+  "description": "__MSG_extDescription__",
+  "version": "0.0.0",
+  "default_locale": "en",
+  "minimum_chrome_version": "119",
+  "permissions": ["storage", "scripting", "declarativeNetRequest"],
+  "host_permissions": ["https://claude.ai/*"],
+  "background": { "service_worker": "background.js", "type": "module" },
+  "action": { "default_popup": "popup.html", "default_title": "__MSG_extName__" },
+  "options_ui": { "page": "popup.html", "open_in_tab": true }
+}

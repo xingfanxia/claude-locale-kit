@@ -73,7 +73,7 @@ enum CLIRunner {
             process.standardError = err
             process.standardInput = FileHandle.nullDevice
             do { try process.run() } catch {
-                return .failure(CheckFailure(message: "Could not start claude-locale: \(error.localizedDescription)"))
+                return .failure(CheckFailure(message: String(localized: "Could not start claude-locale: \(error.localizedDescription)")))
             }
             let timeout = DispatchWorkItem { if process.isRunning { process.terminate() } }
             DispatchQueue.global().asyncAfter(deadline: .now() + 10, execute: timeout)
@@ -83,8 +83,8 @@ enum CLIRunner {
             timeout.cancel()
             if let result = CheckResult.parse(stdout) { return .success(result) }
             let detail = String(decoding: stderr, as: UTF8.self)
-                .split(separator: "\n").first.map(String.init) ?? "exit status \(process.terminationStatus)"
-            return .failure(CheckFailure(message: "claude-locale check returned no readable result (\(detail))."))
+                .split(separator: "\n").first.map(String.init) ?? String(localized: "exit status \(process.terminationStatus)")
+            return .failure(CheckFailure(message: String(localized: "claude-locale check returned no readable result (\(detail)).")))
         }.value
     }
 }

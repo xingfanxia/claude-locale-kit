@@ -1,0 +1,214 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "%@ ahead of this Mac" : {
+
+    },
+    "%@ behind this Mac" : {
+
+    },
+    "Add your own Claude Code arguments after the final --." : {
+
+    },
+    "Adds DISABLE_ERROR_REPORTING=1 when Claude Code starts with this profile." : {
+
+    },
+    "Adds DISABLE_TELEMETRY=1 when Claude Code starts with this profile. Turning off telemetry (metrics) also turns off feature-flag fetching and may affect Remote Control. Error reporting is a separate switch below." : {
+
+    },
+    "Check the saved profile" : {
+
+    },
+    "Checking…" : {
+
+    },
+    "Claude Code" : {
+
+    },
+    "Claude Code (command line)" : {
+
+    },
+    "Claude Code opt-outs" : {
+
+    },
+    "Claude Code started from this app reads this file. To use the same settings in Chrome, import the file in the browser extension." : {
+
+    },
+    "Claude Desktop chat" : {
+
+    },
+    "Command copied." : {
+
+    },
+    "Command for a shell alias or script" : {
+
+    },
+    "Copy Command" : {
+
+    },
+    "Copy Snippet" : {
+
+    },
+    "Could not save the profile: %@" : {
+
+    },
+    "Could not start claude-locale: %@" : {
+
+    },
+    "Could not write the launch script: %@" : {
+
+    },
+    "Dismiss" : {
+
+    },
+    "Expected offset" : {
+
+    },
+    "File" : {
+
+    },
+    "LANG and LC_ALL" : {
+
+    },
+    "Language and region" : {
+
+    },
+    "Match. The test process reported %@." : {
+
+    },
+    "Mismatch. Expected %@, but /bin/date reported %@." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Mismatch. Expected %1$@, but /bin/date reported %2$@."
+          }
+        }
+      }
+    },
+    "No time zone matches “%@”. Try a city, a region or an offset such as +09." : {
+
+    },
+    "Not saved yet" : {
+
+    },
+    "Open Claude Code in Terminal" : {
+
+    },
+    "Open in Terminal" : {
+
+    },
+    "Opens a new Terminal window that starts Claude Code with the saved profile." : {
+
+    },
+    "Pending. Not covered until a local proxy approach has been tested. This app never restarts or changes Claude Desktop." : {
+
+    },
+    "Profile" : {
+
+    },
+    "Profile saved." : {
+
+    },
+    "Reported by /bin/date" : {
+
+    },
+    "Reveal in Finder" : {
+
+    },
+    "Run Check" : {
+
+    },
+    "Same time as this Mac" : {
+
+    },
+    "Save Profile" : {
+
+    },
+    "Save the profile to check it." : {
+
+    },
+    "Saved" : {
+
+    },
+    "Search time zones" : {
+
+    },
+    "Sets LANG and LC_ALL to %@" : {
+
+    },
+    "Settings snippet" : {
+
+    },
+    "Settings snippet copied." : {
+
+    },
+    "Setup, not verified. An \"env\" block with only the opt-outs above, for ~/.claude/settings.json. Paste it yourself; it does not set the time zone or locale." : {
+
+    },
+    "Starts /bin/date with the profile’s environment and compares the UTC offset it reports." : {
+
+    },
+    "TZ, LANG and LC_ALL apply to the process claude-locale starts and to its child processes. Other request details are not changed." : {
+
+    },
+    "Terminal could not open the launch script: %@" : {
+
+    },
+    "Terminal was not found." : {
+
+    },
+    "The bundled claude-locale tool is missing. Reinstall the app." : {
+
+    },
+    "The check did not report a configured profile." : {
+
+    },
+    "The check reads the saved file. Save to include your latest changes." : {
+
+    },
+    "The saved profile could not be read: %@ Saving replaces it." : {
+
+    },
+    "This changes what apps read from your clock and language settings. It does not change your network address, account country or anything Anthropic determines on its servers." : {
+
+    },
+    "Through the browser extension, after you import this profile there." : {
+
+    },
+    "Time zone" : {
+
+    },
+    "Turn off error reporting" : {
+
+    },
+    "Turn off telemetry" : {
+
+    },
+    "Unsaved changes" : {
+
+    },
+    "Verify" : {
+
+    },
+    "Where this applies" : {
+
+    },
+    "claude-locale check returned no readable result (%@)." : {
+
+    },
+    "claude.ai in Chrome" : {
+
+    },
+    "exit status %d" : {
+
+    },
+    "nothing" : {
+
+    },
+    "unknown" : {
+
+    }
+  },
+  "version" : "1.0"
+}

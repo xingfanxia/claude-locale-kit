@@ -64,14 +64,26 @@ enum Fmt {
 struct ZoneRow: Identifiable, Equatable {
     let id: String
     let offset: String
+    /// Last path component, readable: "America/Argentina/Buenos_Aires" -> "Buenos Aires".
+    let city: String
+    /// The system's localized generic name ("Pacific Time"), or the IANA id when there is none.
+    let detail: String
+    /// IANA area ("Europe", "America"); the zone itself for area-less ids such as "UTC".
+    let region: String
     let searchText: String
+
+    static func city(_ zone: String) -> String {
+        (zone.split(separator: "/").last.map(String.init) ?? zone).replacingOccurrences(of: "_", with: " ")
+    }
 
     static let all: [ZoneRow] = {
         let now = Date()
         return Catalog.timeZones.sorted().map { zone in
-            let offset = Fmt.offsetSeconds(zone: zone, at: now).map(Fmt.offset(seconds:)) ?? "unknown"
-            let search = (zone.replacingOccurrences(of: "_", with: " ") + " " + offset).lowercased()
-            return ZoneRow(id: zone, offset: offset, searchText: search)
+            let offset = Fmt.offsetSeconds(zone: zone, at: now).map(Fmt.offset(seconds:)) ?? String(localized: "unknown")
+            let name = TimeZone(identifier: zone)?.localizedName(for: .generic, locale: .current) ?? zone
+            let search = [zone.replacingOccurrences(of: "_", with: " "), name, offset].joined(separator: " ").lowercased()
+            let region = zone.split(separator: "/").first.map(String.init) ?? zone
+            return ZoneRow(id: zone, offset: offset, city: city(zone), detail: name, region: region, searchText: search)
         }
     }()
 

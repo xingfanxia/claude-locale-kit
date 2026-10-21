@@ -21,6 +21,9 @@ settings-snippet
             Setup, not verified: paste it into ~/.claude/settings.json yourself.
 validate    Exit 0 if FILE is a valid v1 profile, 1 otherwise.
 
+Exit status of run: Claude Code's own once it starts (same PID, signals go to it).
+Before that: 2 usage or profile error, 126 claude not executable, 127 claude not found.
+
 Default profile: $XDG_CONFIG_HOME/claude-locale-kit/profile.json or ~/.config/claude-locale-kit/profile.json
 """
 

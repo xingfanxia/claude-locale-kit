@@ -1,0 +1,8 @@
+{
+  "comment": "Audit only. hosts: exact host names to decrypt and inspect; [] = tunnel-only (nothing decrypted). paths: exact templates, {id} = one non-empty segment. See README.md for where the values come from.",
+  "mode": "audit",
+  "hosts": [],
+  "paths": [],
+  "profileZone": "America/Los_Angeles",
+  "profileLocale": "en-US"
+}

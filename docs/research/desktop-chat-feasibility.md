@@ -1,8 +1,9 @@
 # Claude Desktop Chat: feasibility of a chosen time zone and locale
 
-Status: **Chat coverage not established.** Desktop Chat is a required surface. Two candidate routes remain open,
-and both need runtime validation in an independent test environment. The user has chosen a separate macOS VM or
-test account; that environment has not been confirmed yet, and no runtime test has run.
+Status: **Chat coverage not established.** Desktop Chat is a required surface. The VM / separate-account
+environment was cancelled by the user; validation is local only, on this Mac, with the audit proxy in
+[tools/desktop-proxy](../../tools/desktop-proxy/README.md). That proxy has passed fixture tests only; no
+runtime test against Claude Desktop has run.
 
 Method: static inspection of the shipped app only. Nothing was launched, patched or reconfigured, and the user's
 running Desktop was not touched. Analysed build: Claude Desktop 2.42304.0 (`com.anthropic.claudefordesktop`, team
@@ -79,28 +80,28 @@ Offsets are character offsets into the extracted file.
   that only looks at headers could miss it.
 - Unknown: whether a rewriting proxy is accepted end to end (pinning, integrity checks, consistency checks).
 
-## Prerequisites for runtime validation
+## Local validation plan
 
-Selected by the user: an **independent macOS VM or separate macOS test account**, with its own home, Keychain,
-LaunchServices database and browser folders, and a **test Claude login** that the user completes there. Its
-availability is being confirmed; no runtime step runs before that.
+The executable plan, with start, trust, restore and verification commands and a checklist, is in
+[tools/desktop-proxy/README.md](../../tools/desktop-proxy/README.md). In outline:
 
-## Bounded test plan (independent environment only)
+1. **Tunnel-only run** (no CA, nothing decrypted): the user relaunches Desktop with
+   `--proxy-server=http://127.0.0.1:PORT`. This confirms the switch is accepted and Chat traffic routes
+   through the proxy.
+2. **Field audit** (user approval required): a one-day, name-constrained CA from `make-ca.sh` is stored in
+   `~/creds` and trusted in the login keychain for SSL only. The fixed flows are run (new chat, send `test`,
+   open Settings), and for exact path templates only, fixed-list field names, value kinds and match flags are
+   recorded. Prompts, cookies, authorization, raw bodies and URLs are never recorded. Requests pass unchanged
+   and responses stream.
+3. **Per-launch route** on the same proxy: `--env TZ=B --args -AppleLanguages '(en-US)'`, compared with step 2.
+4. **Restore**: remove exactly that certificate by its recorded SHA-1, delete the CA, relaunch Desktop
+   normally, and check that `scutil --proxy` matches the before-state.
+5. **Report per route**: for each field observed, whether it shows the system value, the profile value or
+   neither, for the tested flows only. A field not observed means "not observed in these flows".
 
-Any CA trust is installed only inside that environment, by the user's choice. Captures cover only the flows
-exercised, so results are stated as field coverage observed for those flows. No capture proves the absence of
-other signals.
-
-1. **Baseline.** Normal launch (system zone A, language L). Start a Chat and run a fixed set of flows (new chat,
-   send, attach a file, open settings). Capture through a logging proxy
-   (`open -a Claude --args --proxy-server=http://127.0.0.1:PORT`, CA trusted in that environment only). List every
-   field or header carrying a zone, offset, date string or locale, per host.
-2. **Per-launch route.** Quit, then relaunch with `--env TZ=B --args -AppleLanguages '(en-US)'`; repeat the same
-   flows and capture. Then repeat with `--lang=en-US`. Also record the Code tab's `echo $TZ` and its date line.
-3. **Proxy route.** With the baseline launch, rewrite only the fields found in step 1 to B / en-US. Record whether
-   requests succeed, and whether any listed field keeps A/L.
-4. **Report per route.** For each field found in step 1: changed / unchanged / not present, for the tested flows
-   only. Note residual A/L anywhere (for example `getSystemLocale()` in diagnostics).
+Risks of the local route compared with the cancelled isolated environment: the run uses the user's real
+login and Desktop data, and the trusted CA briefly affects that user's TLS trust for claude.ai. This is why
+the trust step is the user's explicit decision and is removed right after.
 
 ## Decision after validation
 

@@ -8,7 +8,8 @@ if let flag = arguments.firstIndex(of: "--render-snapshots") {
         FileHandle.standardError.write(Data("usage: ClaudeLocaleKit --render-snapshots <dir>\n".utf8))
         exit(64)
     }
-    exit(Snapshots.render(to: URL(fileURLWithPath: arguments[flag + 1], isDirectory: true)))
+    let dir = URL(fileURLWithPath: arguments[flag + 1], isDirectory: true)
+    exit(MainActor.assumeIsolated { Snapshots.render(to: dir) })
 }
 
 ClaudeLocaleKitApp.main()

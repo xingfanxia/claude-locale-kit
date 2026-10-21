@@ -1,0 +1,108 @@
+{
+  "extName": { "message": "Claude Locale Kit" },
+  "extShortName": { "message": "Locale Kit" },
+  "extDescription": { "message": "Choose the time zone and language that claude.ai reads in this browser." },
+
+  "enabledLabel": { "message": "Override on claude.ai" },
+  "previewOn": { "message": "claude.ai will read" },
+  "previewOff": { "message": "Off: claude.ai reads this browser’s own settings" },
+  "previewZone": { "message": "Time zone" },
+  "previewLanguages": { "message": "Languages" },
+  "previewHeader": { "message": "Accept-Language" },
+  "previewHeaderNative": { "message": "Sent by this browser as usual" },
+
+  "zoneLabel": { "message": "Time zone" },
+  "zoneSearchPlaceholder": { "message": "Search a city or an offset like +05:30" },
+  "zoneNoMatch": {
+    "message": "No time zone matches “$QUERY$”.",
+    "placeholders": { "query": { "content": "$1" } }
+  },
+  "localeLabel": { "message": "Language and region" },
+  "localeOption": {
+    "message": "$NAME$ ($CODE$)",
+    "placeholders": { "name": { "content": "$1" }, "code": { "content": "$2" } }
+  },
+
+  "reloadTabs": { "message": "Reload claude.ai tabs" },
+  "reloadedTabs": {
+    "message": "Reloaded claude.ai tabs: $COUNT$.",
+    "placeholders": { "count": { "content": "$1" } }
+  },
+  "noTabs": { "message": "No claude.ai tabs are open." },
+  "importProfile": { "message": "Import profile" },
+  "importOpensTab": { "message": "Choose the profile file in this tab." },
+  "exportProfile": { "message": "Export profile" },
+  "exported": { "message": "Exported claude-locale-profile.json to your downloads." },
+  "imported": {
+    "message": "Imported $ZONE$ with $LOCALE$.",
+    "placeholders": { "zone": { "content": "$1" }, "locale": { "content": "$2" } }
+  },
+  "savedOn": { "message": "Saved. Open claude.ai tabs pick this up when they next load." },
+  "savedOff": { "message": "Saved. Turn the override on to use it on claude.ai." },
+  "turnedOn": { "message": "On. Open claude.ai tabs pick this up when they next load." },
+  "turnedOff": { "message": "Off. Open claude.ai tabs return to this browser’s settings when they next load." },
+  "applyFailed": {
+    "message": "The change was saved but not applied: $ERROR$",
+    "placeholders": { "error": { "content": "$1" } }
+  },
+  "scriptStepFailed": {
+    "message": "Saved, but the claude.ai script was not updated: $ERROR$",
+    "placeholders": { "error": { "content": "$1" } }
+  },
+  "headerStepFailed": {
+    "message": "Saved, but the Accept-Language rule was not updated: $ERROR$",
+    "placeholders": { "error": { "content": "$1" } }
+  },
+
+  "checkTab": { "message": "Check current Claude tab" },
+  "checkNotClaude": { "message": "Open claude.ai in this tab first." },
+  "checkFailed": {
+    "message": "Could not read this tab: $ERROR$",
+    "placeholders": { "error": { "content": "$1" } }
+  },
+  "checkDone": { "message": "Checked what scripts in this tab read." },
+  "checkObserved": { "message": "Observed" },
+  "checkSelected": { "message": "Selected" },
+  "checkMatch": { "message": "Match" },
+  "checkMismatch": { "message": "Differs" },
+  "checkRow_timeZone": { "message": "Time zone" },
+  "checkRow_locale": { "message": "Locale" },
+  "checkRow_timezoneOffset": { "message": "getTimezoneOffset()" },
+  "checkRow_language": { "message": "navigator.language" },
+  "checkRow_languages": { "message": "navigator.languages" },
+  "checkRow_dateString": { "message": "Date string" },
+  "checkAlias": {
+    "message": "Chrome reports $OBSERVED$ for $SELECTED$; both names resolve to the same zone, so this counts as a match.",
+    "placeholders": { "observed": { "content": "$1" }, "selected": { "content": "$2" } }
+  },
+  "checkOff": { "message": "The override is off, so differences from Selected are expected." },
+  "checkScope": { "message": "This checks only what page JavaScript reads in this tab. It does not check the Accept-Language header or any network traffic." },
+
+  "errReadFile": { "message": "The file could not be read." },
+  "errNotJSON": { "message": "The file is not valid JSON." },
+  "errNotObject": { "message": "A profile must be a JSON object." },
+  "errUnknownKey": {
+    "message": "Unsupported key “$KEY$”. Profiles only hold schema, version, timeZone, locale and cli.",
+    "placeholders": { "key": { "content": "$1" } }
+  },
+  "errMissingKey": {
+    "message": "Missing required key “$KEY$”.",
+    "placeholders": { "key": { "content": "$1" } }
+  },
+  "errWrongType": {
+    "message": "“$KEY$” has the wrong type.",
+    "placeholders": { "key": { "content": "$1" } }
+  },
+  "errWrongSchema": { "message": "“schema” must be “claude-locale-kit/profile”." },
+  "errWrongVersion": { "message": "“version” must be 1." },
+  "errUnknownTimeZone": {
+    "message": "“$ZONE$” is not a supported IANA time zone.",
+    "placeholders": { "zone": { "content": "$1" } }
+  },
+  "errUnknownLocale": {
+    "message": "“$LOCALE$” is not a supported locale.",
+    "placeholders": { "locale": { "content": "$1" } }
+  },
+
+  "scopeNote": { "message": "Changes the time zone and language that scripts on claude.ai read and the Accept-Language header it receives. Not Web Workers, your IP address or your account. Tabs pick this up on their next load." }
+}

@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title data-i18n="extName"></title>
+  <link rel="stylesheet" href="ui/popup.css">
+  <script type="module" src="ui/popup.js"></script>
+</head>
+<body>
+  <main class="panel">
+    <header class="top">
+      <h1 data-i18n="extName"></h1>
+      <label class="switch">
+        <span data-i18n="enabledLabel"></span>
+        <input type="checkbox" role="switch" id="enabled" data-testid="enabled">
+        <span class="track" aria-hidden="true"></span>
+      </label>
+    </header>
+
+    <section class="preview" id="preview" data-testid="preview" aria-live="polite">
+      <p class="preview-heading" id="preview-heading"></p>
+      <div class="clock-row"><p class="clock" id="clock"></p><p class="offset" id="offset"></p></div>
+      <p class="date" id="date"></p>
+      <dl class="facts">
+        <div><dt data-i18n="previewZone"></dt><dd id="fact-zone"></dd></div>
+        <div><dt data-i18n="previewLanguages"></dt><dd id="fact-languages"></dd></div>
+        <div><dt data-i18n="previewHeader"></dt><dd id="fact-header"></dd></div>
+      </dl>
+    </section>
+
+    <section class="field">
+      <label for="zone-search" class="field-label" data-i18n="zoneLabel"></label>
+      <div class="combo">
+        <input id="zone-search" type="text" autocomplete="off" spellcheck="false"
+               role="combobox" aria-expanded="false" aria-controls="zone-list" aria-autocomplete="list"
+               data-i18n-placeholder="zoneSearchPlaceholder" data-testid="zone-search">
+        <div id="zone-popover" class="popover" hidden>
+          <ul id="zone-list" class="zones" role="listbox" tabindex="-1" data-testid="zone-list"></ul>
+          <p id="zone-empty" class="zone-empty" hidden></p>
+        </div>
+      </div>
+    </section>
+
+    <section class="field">
+      <label for="locale" class="field-label" data-i18n="localeLabel"></label>
+      <select id="locale" data-testid="locale"></select>
+    </section>
+
+    <section class="actions">
+      <div class="buttons">
+        <button type="button" id="reload" class="primary" data-i18n="reloadTabs" data-testid="reload"></button>
+        <button type="button" id="check" data-i18n="checkTab" data-testid="check"></button>
+      </div>
+      <p id="status" class="status" role="status" data-testid="status"></p>
+    </section>
+
+    <section id="check-result" class="check" data-testid="check-result" hidden>
+      <table>
+        <thead><tr><th></th><th data-i18n="checkObserved"></th><th data-i18n="checkSelected"></th></tr></thead>
+        <tbody id="check-rows"></tbody>
+      </table>
+      <p id="check-notes" class="check-notes"></p>
+    </section>
+
+    <footer class="foot">
+      <p class="scope" data-i18n="scopeNote"></p>
+      <div class="files">
+        <button type="button" id="import" class="link" data-i18n="importProfile" data-testid="import"></button>
+        <button type="button" id="export" class="link" data-i18n="exportProfile" data-testid="export"></button>
+        <input type="file" id="import-file" accept="application/json,.json" hidden>
+      </div>
+    </footer>
+  </main>
+</body>
+</html>

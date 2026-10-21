@@ -8,8 +8,11 @@
   "scripts": {
     "build": "node scripts/build.mjs",
     "build:mac": "sh scripts/build-mac.sh",
-    "test": "node scripts/build.mjs --check && node --test tests/",
-    "test:swift": "swift test --package-path mac"
+    "test": "node scripts/build.mjs --check && node scripts/build.mjs && node --test 'tests/**/*.test.mjs'",
+    "test:swift": "swift test --package-path mac",
+    "test:proxy": "uv run --no-project --quiet --python 3.14 --with mitmproxy==12.2.3 --with pytest python -m pytest tools/desktop-proxy/tests -q -p no:cacheprovider"
   },
-  "devDependencies": {}
+  "devDependencies": {
+    "playwright": "1.64.1"
+  }
 }

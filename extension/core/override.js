@@ -24,7 +24,7 @@
   const nat = {};
   for (const k of ["getTime", "setTime", "getUTCFullYear", "getUTCMonth", "getUTCDate", "getUTCDay", "getUTCHours",
     "getUTCMinutes", "getUTCSeconds", "getUTCMilliseconds", "setUTCFullYear", "setUTCMonth", "setUTCDate",
-    "setUTCHours", "setUTCMinutes", "setUTCSeconds", "setUTCMilliseconds", "getTimezoneOffset", "toLocaleString",
+    "setUTCHours", "setUTCMinutes", "setUTCSeconds", "setUTCMilliseconds", "setFullYear", "setHours", "getTimezoneOffset", "toLocaleString",
     "toLocaleDateString", "toLocaleTimeString"]) nat[k] = DP[k];
   const time = (d) => apply(nat.getTime, d, []);
   const MAX = 8.64e15;
@@ -42,6 +42,7 @@
     apply(nat.setUTCHours, scratch, [h, mi, s, ms]);
     return time(scratch);
   };
+  const CYCLE = 146097 * 86400000; // 400 Gregorian years; weekdays repeat too
   const offsetCache = new Map();
   /** Offset in ms (local = utc + offset) of TZ at instant t. */
   function offsetAt(t) {
@@ -53,7 +54,9 @@
     let y = Number(f.year);
     if (f.era === "BC" || f.era === "B") y = 1 - y;
     const ms = ((t % 1000) + 1000) % 1000;
-    o = utcFromFields(y, Number(f.month) - 1, Number(f.day), Number(f.hour), Number(f.minute), Number(f.second), ms) - t;
+    // Near the ends of the Date range the wall clock itself may be out of range: build it 400 years inward.
+    const k = t > MAX / 2 ? -1 : t < -MAX / 2 ? 1 : 0;
+    o = utcFromFields(y + k * 400, Number(f.month) - 1, Number(f.day), Number(f.hour), Number(f.minute), Number(f.second), ms) - k * CYCLE - t;
     if (offsetCache.size > 4096) offsetCache.clear();
     offsetCache.set(key, o);
     return o;
@@ -62,8 +65,8 @@
    * times, and the pre-transition offset for skipped times. */
   function wallToUtc(w) {
     if (!Number.isFinite(w)) return NaN;
-    const before = offsetAt(w - 86400000);
-    const after = offsetAt(w + 86400000);
+    const before = offsetAt(Math.max(w - 86400000, -MAX));
+    const after = offsetAt(Math.min(w + 86400000, MAX));
     let best = NaN;
     for (const o of before === after ? [before] : [before, after]) {
       const t = w - o;
@@ -77,11 +80,26 @@
   const ISO_DATE_ONLY = /^[+-]?\d{4,6}(-\d\d(-\d\d)?)?$/;
   const HAS_ZONE = /(?:Z|[+-]\d\d(?::?\d\d)?|\b(?:GMT|UTC|UT|[ECMP][SD]T)\b[+-]?\d*(?::?\d\d)?)\s*(?:\([^)]*\))?\s*$/i;
   const nativeParse = NativeDate.parse;
+  /** Instant the browser's own zone assigns to wall-clock w (native local constructor). */
+  function hostInstant(w) {
+    const d = new NativeDate(0);
+    apply(nat.setTime, scratch, [w]);
+    apply(nat.setFullYear, d, [apply(nat.getUTCFullYear, scratch, []), apply(nat.getUTCMonth, scratch, []), apply(nat.getUTCDate, scratch, [])]);
+    apply(nat.setHours, d, [apply(nat.getUTCHours, scratch, []), apply(nat.getUTCMinutes, scratch, []), apply(nat.getUTCSeconds, scratch, []), apply(nat.getUTCMilliseconds, scratch, [])]);
+    return time(d);
+  }
   function parse(str) {
     const s = String(str);
     const t = nativeParse(s);
     if (Number.isNaN(t) || ISO_DATE_ONLY.test(s.trim()) || HAS_ZONE.test(s.trim())) return t;
-    // The engine read a zone-less string as browser-local time; reread it in TZ.
+    // The engine read a zone-less string as browser-local time; recover the written wall clock
+    // and reread it in TZ. Reading it back from t alone fails inside a browser-zone DST gap
+    // (02:30 has already become 03:30), so first reparse the text as UTC and keep that wall
+    // clock when the browser zone maps it to the same instant.
+    for (const suffix of ["Z", " GMT"]) {
+      const w = nativeParse(s + suffix);
+      if (!Number.isNaN(w) && hostInstant(w) === t) return wallToUtc(w);
+    }
     const nativeWall = t - apply(nat.getTimezoneOffset, new NativeDate(t), []) * 60000;
     return wallToUtc(nativeWall);
   }
@@ -103,14 +121,34 @@
   const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
   const pad = (n, w = 2) => String(n).padStart(w, "0");
   const nameFmt = new NativeDTF(LOCALE, { timeZone: TZ, timeZoneName: "long" });
+  // Like V8, name instants outside 1970..2038 after an equivalent year (same leap-ness and
+  // weekday of 1 January, within 2008..2035), so historic and far-future dates get the zone's
+  // standard/daylight name rather than an ICU "GMT-04:56:02" fallback.
+  const DAY = 86400000;
+  function equivalentTime(t) {
+    apply(nat.setTime, scratch, [t]);
+    const y = apply(nat.getUTCFullYear, scratch, []);
+    const leap = (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0;
+    const jan1 = new NativeDate(0);
+    apply(nat.setUTCFullYear, jan1, [y, 0, 1]);
+    const weekDay = apply(nat.getUTCDay, jan1, []);
+    const recent = (leap ? 1956 : 1967) + ((weekDay * 12) % 28);
+    const within = ((t % DAY) + DAY) % DAY;
+    const days = Math.floor(t / DAY) - Math.floor(time(jan1) / DAY);
+    return utcFromFields(2008 + ((recent + 3 * 28 - 2008) % 28), 0, 1, 0, 0, 0, 0) + days * DAY + within;
+  }
   function zoneName(t) {
-    const p = nameFmt.formatToParts(t).find((x) => x.type === "timeZoneName");
+    const at = t < 0 || t > 2147483647000 ? equivalentTime(t) : t;
+    const p = nameFmt.formatToParts(at).find((x) => x.type === "timeZoneName");
     return p ? p.value : TZ;
   }
   function fields(t) {
-    apply(nat.setTime, scratch, [wallOf(t)]);
+    // Near ±8.64e15 the wall clock can fall outside the Date range; shift by 400 years to read it.
+    const w = wallOf(t);
+    const shift = w > MAX ? -1 : w < -MAX ? 1 : 0;
+    apply(nat.setTime, scratch, [w + shift * CYCLE]);
     return {
-      y: apply(nat.getUTCFullYear, scratch, []), mo: apply(nat.getUTCMonth, scratch, []), d: apply(nat.getUTCDate, scratch, []),
+      y: apply(nat.getUTCFullYear, scratch, []) - shift * 400, mo: apply(nat.getUTCMonth, scratch, []), d: apply(nat.getUTCDate, scratch, []),
       wd: apply(nat.getUTCDay, scratch, []), h: apply(nat.getUTCHours, scratch, []), mi: apply(nat.getUTCMinutes, scratch, []),
       s: apply(nat.getUTCSeconds, scratch, []),
     };
@@ -119,7 +157,7 @@
   function datePart(t) { const f = fields(t); return `${DAYS[f.wd]} ${MONTHS[f.mo]} ${pad(f.d)} ${yearStr(f.y)}`; }
   function timePart(t) {
     const f = fields(t);
-    const o = Math.round(offsetAt(t) / 60000);
+    const o = Math.trunc(offsetAt(t) / 60000);
     const sign = o >= 0 ? "+" : "-";
     const a = Math.abs(o);
     return `${pad(f.h)}:${pad(f.mi)}:${pad(f.s)} GMT${sign}${pad(Math.floor(a / 60))}${pad(a % 60)} (${zoneName(t)})`;
@@ -169,7 +207,7 @@
   define(DP, "getMilliseconds", function () { return apply(nat.getUTCMilliseconds, this, []); });
   define(DP, "getTimezoneOffset", function () {
     const t = time(this);
-    return Number.isNaN(t) ? NaN : -offsetAt(t) / 60000;
+    return Number.isNaN(t) ? NaN : 0 - Math.trunc(offsetAt(t) / 60000); // V8 truncates to whole minutes
   });
 
   // Local setters: move to wall time, apply the UTC setter there, move back.
@@ -211,7 +249,8 @@
     const o = Object(options);
     return o.timeZone === undefined ? Object.create(o, { timeZone: { value: TZ, enumerable: true } }) : o;
   };
-  const loc = (locales) => (locales === undefined ? LOCALE : locales);
+  // An empty locale list also means "the default locale" to the engine.
+  const loc = (locales) => (locales === undefined || (Array.isArray(locales) && locales.length === 0) ? LOCALE : locales);
   for (const k of ["toLocaleString", "toLocaleDateString", "toLocaleTimeString"]) {
     define(DP, k, function (locales, options) { return apply(nat[k], this, [loc(locales), withZone(options)]); });
   }
