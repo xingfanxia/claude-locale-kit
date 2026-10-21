@@ -4,8 +4,10 @@ A small local tool for one job: find out which time zone and locale fields Claud
 requests actually carry. A rewrite schema is chosen only after that evidence exists, so this
 tool has **no rewrite mode**. It forwards every request and response unchanged.
 
-Status: tested against local fixture servers only (`tests/`). No run against Claude Desktop has
-happened yet; that run is the user-authorized final step below.
+Status: fixture-tested (`tests/`). Against the real app, only the tunnel-only step has run
+(Claude Desktop 3.1623.0: switch accepted, Chat loaded through the proxy; see the
+[feasibility report](../../docs/research/desktop-chat-feasibility.md#runtime-observations-claude-desktop-316230)).
+The field audit has not run, so no time zone or locale field of Desktop Chat has been observed yet.
 
 ## What it records
 
@@ -45,14 +47,36 @@ it, and do not point it at VPN software.
 ## Prerequisites
 
 - `uv` (fetches Python 3.14 and `mitmproxy==12.2.3` into its cache on first use).
-- Claude Desktop installed. The user quits and relaunches it; no tool here does that.
-- Fixture tests: `npm run test:proxy`.
+- Claude Desktop installed.
+- Fixture tests: `npm run test:proxy` (includes `live-audit.sh` cleanup with a fake `security`).
 
-## Live validation plan (needs the user's approval before step 3)
+## Supervised live run: `live-audit.sh`
 
-Nothing below has been run. Steps 1–2 change no certificate trust and no system proxy setting;
-step 1 does quit and relaunch Claude Desktop (by the user) and writes a local config and log.
-Step 3 is the only trust change; step 7 removes exactly that certificate.
+```sh
+tools/desktop-proxy/live-audit.sh Asia/Tokyo en-GB    # ZONE and LOCALE from the project catalog
+```
+
+It runs steps 0 and 3–7 below in order. Three steps are the user's: authenticating the macOS trust
+prompt, quitting Claude Desktop (the script never quits it; save your work first), and sending `test`
+in a new chat. Every wait has a time limit. It starts Desktop with the per-launch profile (step 5) and the
+proxy in one launch, records the Desktop version and `app.asar` hash that ran, and writes everything to
+`scratch/data/desktop-proxy/live-<time>/`.
+
+On exit, including after a failure or Ctrl-C, it stops the proxy it started (by process ID), removes the
+trust setting and certificate, and then checks the keychain listing and the exported trust settings for the
+certificate's exact SHA-1. It deletes the CA folder only when both checks read 0. If a check fails or cannot
+be read, it keeps only the public certificate and `sha1.txt`, prints the recovery commands and exits with 3.
+The private key is always deleted. A cancelled password prompt or a Desktop left open can stop cleanup from
+finishing, so read `restore.txt` after every run.
+
+The config's paths are candidates (common claude.ai conversation routes), not observed routes. A request to
+claude.ai on another route is logged only as `unmatched_route`; if the summary shows no `request` lines,
+the candidates missed and the run says nothing about fields.
+
+## Manual steps (what `live-audit.sh` automates)
+
+Step 1 has been run once (3.1623.0, see Status). Steps 1–2 change no certificate trust and no system
+proxy setting. Step 3 is the only trust change; step 7 removes exactly that certificate.
 
 **0. Record the before-state** (read-only):
 
@@ -73,10 +97,8 @@ open -a Claude --args --proxy-server=http://127.0.0.1:18080
 Check: Desktop starts (no "refusing to start"), Chat works, and the log fills with `tunnel` lines.
 Then quit Desktop and press Ctrl-C in the proxy terminal.
 
-**2. Choose the exact templates.** In your own Chrome, open claude.ai with DevTools → Network, send a
-message, and copy the path of the request that posts the message. Replace each ID segment with
-`{id}`. Put that template under `paths` and `"claude.ai"` under `hosts` in the config. You read
-these URLs locally; nothing logs them.
+**2. Templates.** Put `"claude.ai"` under `hosts` and the candidate templates from `live-audit.sh` under
+`paths` (`{id}` is one path segment). They stay candidates until `request` lines show they matched.
 
 **3. Create and trust the audit CA. Requires approval.**
 

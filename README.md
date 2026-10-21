@@ -4,7 +4,8 @@ Choose the time zone and locale that Claude's client-side code reads on your Mac
 
 Covered today: **Claude Code CLI**, for processes started through the `claude-locale` wrapper, and
 **claude.ai in Chromium browsers**, through the extension. **Claude Desktop Chat is not covered.**
-A local audit tool for it is ready, but no run against the real app has happened yet (see below).
+Against the real app, only a tunnel-only proxy run has happened; which time zone and locale fields
+Chat sends is still unobserved (see below).
 
 This kit changes what client code reads from the clock and language settings. It does not change
 your network address, account country, billing, or anything Anthropic determines on its servers. It
@@ -18,7 +19,7 @@ is not a way to avoid account enforcement.
 | `claude-locale` CLI (`mac/Sources/claude-locale`) | Sets `TZ`, `LANG` and `LC_ALL` for the process it launches and that process's children, then `execve`s Claude Code (same PID, signals and exit status). It does not normalize other request metadata |
 | Mac companion app (`mac/Sources/ClaudeLocaleKit`) | Edits and saves the profile; checks it with a test process (`/bin/date`); opens Claude Code in Terminal through the wrapper |
 | Browser extension (`extension/`) | Chromium MV3, Chrome 119+. On `https://claude.ai/*` only (pages and the frames they create), it sets the page's JavaScript `Date`/`Intl`/`navigator.language(s)` and the `Accept-Language` request header. It does not reach Web Workers, the network address or the account |
-| Claude Desktop Chat | **Not covered.** Only static findings exist ([feasibility](docs/research/desktop-chat-feasibility.md)). The audit proxy ([tools/desktop-proxy](tools/desktop-proxy/README.md)) has passed fixture tests only. Its live run waits for the user's approval |
+| Claude Desktop Chat | **Not covered.** Static findings plus one runtime step ([feasibility](docs/research/desktop-chat-feasibility.md)): Desktop 3.1623.0 accepted `--proxy-server` and loaded Chat through the local audit proxy, tunnel-only. The field audit ([tools/desktop-proxy](tools/desktop-proxy/README.md), `live-audit.sh`) has not run |
 
 Research and evidence: [audit-2026-10-20.md](docs/research/audit-2026-10-20.md).
 
@@ -62,7 +63,7 @@ with native V8 running in the target zone, from three different host zones.
 
 Which time zone and locale fields Desktop Chat requests carry is unknown. No rewrite is designed
 until real request evidence exists. The [audit proxy](tools/desktop-proxy/README.md) records
-only field names from a fixed list, value kinds and match flags. Its live plan runs in two stages: a
-tunnel-only run that needs no trust change, then a field audit. The field audit needs a short-lived,
-name-constrained CA, trusted in the login keychain and removed afterwards. That plan, including
-restore and verification, is the step that waits for the user's approval.
+only field names from a fixed list, value kinds and match flags. Its tunnel-only stage has run on
+Desktop 3.1623.0. The field audit, `tools/desktop-proxy/live-audit.sh`, needs a short-lived,
+name-constrained CA trusted in the login keychain (a macOS password prompt), one new chat that sends
+`test`, and a restore that checks the certificate and its trust setting are gone by exact hash.

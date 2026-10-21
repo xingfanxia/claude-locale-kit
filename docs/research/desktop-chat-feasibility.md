@@ -2,8 +2,9 @@
 
 Status: **Chat coverage not established.** Desktop Chat is a required surface. The VM / separate-account
 environment was cancelled by the user; validation is local only, on this Mac, with the audit proxy in
-[tools/desktop-proxy](../../tools/desktop-proxy/README.md). That proxy has passed fixture tests only; no
-runtime test against Claude Desktop has run.
+[tools/desktop-proxy](../../tools/desktop-proxy/README.md). One runtime step has run: the tunnel-only proxy
+launch on Claude Desktop 3.1623.0 (see [Runtime observations](#runtime-observations-claude-desktop-316230)).
+The field audit, which is the step that can show time zone and locale fields, has not run.
 
 Method: static inspection of the shipped app only. Nothing was launched, patched or reconfigured, and the user's
 running Desktop was not touched. Analysed build: Claude Desktop 2.42304.0 (`com.anthropic.claudefordesktop`, team
@@ -16,10 +17,33 @@ tested. **Unknown** = not determined.
 
 | Route | Status |
 |---|---|
-| Standard Chromium debugging (CDP) and network-override switches | **Observed blocked.** The app exits at startup when these switches are present without a signed developer token. Other injection routes were not evaluated. We do not bypass the token check, patch the binary, or change fuses. |
+| Debugging, certificate-bypass and host-resolution switches (the denylist in observation 1; `--proxy-server` and `--lang` are not on it) | **Observed blocked** (static, both builds). The app exits at startup when these switches are present without a signed developer token. Other injection routes were not evaluated. We do not bypass the token check, patch the binary, or change fuses. |
 | Same-user isolated instance on the current Mac | **Not established.** The blockers inspected are listed below. The user did not select a supervised restart of their own Desktop. |
 | Per-launch environment: `open -a Claude --env TZ=… --args -AppleLanguages '(en-US)'` (or `--lang`) | **Candidate.** No switch in it is on the observed refusal list. Whether the Chat renderer and its outgoing requests follow it is unknown. |
-| User-trusted local proxy (`--proxy-server`) that rewrites time zone/locale fields | **Candidate.** The switch is not refused. It requires the user to choose to trust a local CA, and runtime validation of which fields exist and whether rewriting them is accepted. Whether certificate pinning applies is unknown. |
+| User-trusted local proxy (`--proxy-server`) that rewrites time zone/locale fields | **Candidate.** The switch is not on the denylist, and at runtime 3.1623.0 started with it and loaded Chat through a local proxy (tunnel-only). It requires the user to choose to trust a local CA, and runtime validation of which fields exist and whether rewriting them is accepted. Whether certificate pinning applies is unknown. |
+
+## Runtime observations (Claude Desktop 3.1623.0)
+
+Build: 3.1623.0, `app.asar` SHA-256 `760e7cbb6f861f0bc0e71e71fd9c6b721ba735f0f638b6ea623645daff4261a7`, same
+bundle ID and team. A staged auto-update replaced 2.42304.0 on 2026-10-22; the static observations below are
+for 2.42304.0. In 3.1623.0 the startup denylist (`NZ`) has the same 16 switches, matched by prefix after
+stripping `-`/`--` (so `ignore-certificate-errors-spki-list` is refused too); `proxy-server` and `lang` are not on it.
+
+Tunnel-only run, 2026-10-22 (no CA, nothing decrypted, system proxy settings untouched): Desktop was quit
+normally and started with `open -g -a Claude --args --proxy-server=http://127.0.0.1:18080`.
+
+- It started and kept running with the switch (no startup refusal).
+- At the moment of inspection, all 9 TCP sockets of its network-service process connected to the local proxy;
+  none went directly to a remote address. That is one sample, not proof about all traffic over time.
+- The proxy logged 26 opaque tunnels (connections to non-allowlisted hosts; no names recorded).
+- The app log showed the Chat web app loaded and the account session established (`Loaded <url> (web commit …)`,
+  `claude.ai account details provided`). No message was sent; that needs foreground input.
+- The main window took focus at launch despite `open -g`.
+- Restore: proxy stopped (exit 0), Desktop quit and started again without flags, `scutil --proxy` identical
+  to the before-state.
+
+This shows that the proxy route is reachable. It says nothing yet about which time zone or locale fields Chat
+sends, or whether it follows a per-launch `TZ`; that is the field audit (`live-audit.sh`).
 
 ## Observations
 
