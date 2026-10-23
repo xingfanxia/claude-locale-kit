@@ -4,10 +4,10 @@ A small local tool for one job: find out which time zone and locale fields Claud
 requests actually carry. A rewrite schema is chosen only after that evidence exists, so this
 tool has **no rewrite mode**. It forwards every request and response unchanged.
 
-Status: fixture-tested (`tests/`). Against the real app, only the tunnel-only step has run
-(Claude Desktop 3.1623.0: switch accepted, Chat loaded through the proxy; see the
-[feasibility report](../../docs/research/desktop-chat-feasibility.md#runtime-observations-claude-desktop-316230)).
-The field audit has not run, so no time zone or locale field of Desktop Chat has been observed yet.
+Status: fixture-tested (`tests/`) and run against Claude Desktop: tunnel-only on 3.1623.0, one field audit
+on 3.6556.2 (per-launch language observed in `Accept-Language`; no time zone field observed because the
+message requests were not JSON). See the
+[feasibility report](../../docs/research/desktop-chat-feasibility.md#field-audit-claude-desktop-365562).
 
 ## What it records
 
@@ -19,14 +19,22 @@ The field audit has not run, so no time zone or locale field of Desktop Chat has
   - a fixed list of headers (`accept-language`, `content-language`, `x-timezone`, ...) and query names;
   - for each of these: the value's kind (`iana_zone`, `locale`, `locale_list`, `utc_offset`, `datetime_*`, `number`, ...) and whether it equals the system or profile zone, locale, date or UTC offset;
   - for everything else, counts only, plus a count of other values that exactly equal a reference zone or locale;
-  - the method, as a fixed enum (`POST`, ..., or `OTHER`).
-- `unmatched_route`: the allowlisted host name only. No path.
+  - the method, as a fixed enum (`POST`, ..., or `OTHER`), the body's content type as a fixed class
+    (`json`, `proto`, `connect_proto`, `grpc`, `grpc_web`, `form`, `text`, `other`, `none`) and a size bucket;
+  - for protobuf bodies (plain or Connect/gRPC-framed, uncompressed): numeric field paths (`#.2.3`) whose
+    string value classifies as a zone, locale, offset or date, or whose integer equals a reference UTC
+    offset in minutes, with kind and match flags. Never a value.
+- `response`: for template routes, after the response has streamed through: status code and content class
+  only. A complete HTTP response does not by itself show that a chat reply succeeded.
+- `unmatched_route`: the allowlisted host name only. With `"discoverRoutes": true` also the method and a
+  route shape in which every path segment outside a fixed vocabulary of structural route words
+  (`SHAPE_VOCAB`) is `{id}`, so names and IDs never appear. Never the query.
 - `tunnel`: one line per connection to a non-allowlisted host. Such a connection is an opaque TLS tunnel: it is never decrypted, and its host name is not recorded.
 
 It never records values, URLs or paths, unknown key/header/query names, cookies, authorization,
 or message content. It never reads `prompt`, `messages`, `content`, `tools`, `attachments` and similar
-containers. Bodies that are not JSON, are encoded, have no length, or exceed 256 KiB stream through
-unread (`skipped_*`). Responses are always streamed and never read, so server-sent events arrive as
+containers. Bodies that are neither JSON nor protobuf, are encoded, have no length, or exceed 256 KiB
+stream through unread (`skipped_*`). Responses are always streamed and never read, so server-sent events arrive as
 sent.
 
 `run.sh` discards mitmproxy's own terminal output, because its error messages can name hosts or URLs.
@@ -56,22 +64,29 @@ it, and do not point it at VPN software.
 tools/desktop-proxy/live-audit.sh Asia/Tokyo en-GB    # ZONE and LOCALE from the project catalog
 ```
 
-It runs steps 0 and 3–7 below in order. Three steps are the user's: authenticating the macOS trust
-prompt, quitting Claude Desktop (the script never quits it; save your work first), and sending `test`
-in a new chat. Every wait has a time limit. It starts Desktop with the per-launch profile (step 5) and the
-proxy in one launch, records the Desktop version and `app.asar` hash that ran, and writes everything to
-`scratch/data/desktop-proxy/live-<time>/`.
+It runs steps 0 and 3–7 below in order. With the built CLI (`dist/claude-locale`), it restarts Desktop
+through the product path, `claude-locale desktop --restart` (a normal quit, then a launch with the
+per-launch profile plus the proxy flag), and restores it with `claude-locale desktop --normal --restart`.
+Without the CLI the user quits Desktop and the script starts it. The user authenticates the macOS trust
+prompts (adding and removing), and a new chat must send `test` (by the user, or by an accessibility
+script that first checks the target composer). Every wait has a time limit (`CLA_CHAT_TIMEOUT`, default
+900 s, bounds the chat step). It records the Desktop version and `app.asar` hash that ran and writes
+everything to `scratch/data/desktop-proxy/live-<time>/`.
 
 On exit, including after a failure or Ctrl-C, it stops the proxy it started (by process ID), removes the
 trust setting and certificate, and then checks the keychain listing and the exported trust settings for the
 certificate's exact SHA-1. It deletes the CA folder only when both checks read 0. If a check fails or cannot
 be read, it keeps only the public certificate and `sha1.txt`, prints the recovery commands and exits with 3.
-The private key is always deleted. A cancelled password prompt or a Desktop left open can stop cleanup from
-finishing, so read `restore.txt` after every run.
+The private key is always deleted. Desktop is restored by looking at the processes: one still carrying this
+run's proxy flag is restarted normally, and if Desktop had been running but is not, it is opened normally. A
+cancelled password prompt or a Desktop left open can stop cleanup from finishing, so read `restore.txt`
+after every run.
 
-The config's paths are candidates (common claude.ai conversation routes), not observed routes. A request to
-claude.ai on another route is logged only as `unmatched_route`; if the summary shows no `request` lines,
-the candidates missed and the run says nothing about fields.
+The config's paths are candidates, not observed routes: the classic `chat_conversations` routes plus
+structural shapes seen when a message was sent on 3.6556.2 (any segment may match `{id}`). They are for
+auditing only, never a rewrite target. Other claude.ai requests are logged as `unmatched_route` with a
+vocabulary-limited shape. If the summary shows no `request` lines, the candidates missed and the run says
+nothing about fields.
 
 ## Manual steps (what `live-audit.sh` automates)
 

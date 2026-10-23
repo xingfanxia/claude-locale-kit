@@ -68,7 +68,7 @@ struct SurfacesSection: View {
                 "Through the browser extension, after you import this profile there.",
                 symbol: "puzzlepiece.extension", tint: .secondary)
             row("Claude Desktop chat",
-                "Pending. Not covered until a local proxy approach has been tested. This app never restarts or changes Claude Desktop.",
+                "Partly tested. Restart with Profile starts Claude Desktop with this language and time zone for that launch. In a live test, chat requests carried the profile's language; whether chat sends the profile's time zone is not verified yet.",
                 symbol: "minus.circle", tint: Palette.warn)
         } header: {
             Text("Where this applies")

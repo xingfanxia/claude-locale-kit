@@ -1,10 +1,11 @@
 # Claude Desktop Chat: feasibility of a chosen time zone and locale
 
-Status: **Chat coverage not established.** Desktop Chat is a required surface. The VM / separate-account
-environment was cancelled by the user; validation is local only, on this Mac, with the audit proxy in
-[tools/desktop-proxy](../../tools/desktop-proxy/README.md). One runtime step has run: the tunnel-only proxy
-launch on Claude Desktop 3.1623.0 (see [Runtime observations](#runtime-observations-claude-desktop-316230)).
-The field audit, which is the step that can show time zone and locale fields, has not run.
+Status: **Chat coverage partly established, on Claude Desktop 3.6556.2 only.** Language: a per-launch
+`-AppleLanguages` reached Chat requests (field audit, run 1). Time zone: **not yet verified**. The VM /
+separate-account environment was cancelled; validation is local, on this Mac, with the audit proxy in
+[tools/desktop-proxy](../../tools/desktop-proxy/README.md). See
+[field audit 3.6556.2](#field-audit-claude-desktop-365562) and the earlier
+[tunnel-only run](#runtime-observations-claude-desktop-316230).
 
 Method: static inspection of the shipped app only. Nothing was launched, patched or reconfigured, and the user's
 running Desktop was not touched. Analysed build: Claude Desktop 2.42304.0 (`com.anthropic.claudefordesktop`, team
@@ -19,8 +20,31 @@ tested. **Unknown** = not determined.
 |---|---|
 | Debugging, certificate-bypass and host-resolution switches (the denylist in observation 1; `--proxy-server` and `--lang` are not on it) | **Observed blocked** (static, both builds). The app exits at startup when these switches are present without a signed developer token. Other injection routes were not evaluated. We do not bypass the token check, patch the binary, or change fuses. |
 | Same-user isolated instance on the current Mac | **Not established.** The blockers inspected are listed below. The user did not select a supervised restart of their own Desktop. |
-| Per-launch environment: `open -a Claude --env TZ=… --args -AppleLanguages '(en-US)'` (or `--lang`) | **Candidate.** No switch in it is on the observed refusal list. Whether the Chat renderer and its outgoing requests follow it is unknown. |
+| Per-launch environment: `open -a Claude --env TZ=… --args -AppleLanguages '(…)'` (shipped as `claude-locale desktop` and the Mac app's Restart with Profile) | **Language observed working** (3.6556.2): every inspected claude.ai request carried `Accept-Language` equal to the per-launch locale, not the system one. **Time zone not verified**: the message-send requests are not JSON and were not parsed in run 1. |
 | User-trusted local proxy (`--proxy-server`) that rewrites time zone/locale fields | **Candidate.** The switch is not on the denylist, and at runtime 3.1623.0 started with it and loaded Chat through a local proxy (tunnel-only). It requires the user to choose to trust a local CA, and runtime validation of which fields exist and whether rewriting them is accepted. Whether certificate pinning applies is unknown. |
+
+## Field audit (Claude Desktop 3.6556.2)
+
+Build: 3.6556.2, `app.asar` SHA-256 `b2dfbbb40325d978dcb7561ad12a6f9bc199f8f46b7d3d2897af74ce8965d68a`, same
+bundle ID and team; startup denylist (`hZ`) unchanged. System: `Asia/Shanghai`, `en-US`. Per-launch profile:
+`Asia/Tokyo`, `en-GB`.
+
+Run 1, 2026-10-23 05:27–05:39 UTC, with `live-audit.sh`: a 1-day CA name-constrained to `claude.ai` was trusted
+for SSL in the login keychain (the user authenticated the macOS prompt). Desktop was quit normally and started
+with `TZ=Asia/Tokyo`, `-AppleLanguages (en-GB)` and `--proxy-server` to the local audit proxy.
+
+- Chat loaded through the proxy with the trusted CA; claude.ai requests were decrypted and inspected by the
+  fixed-field add-on.
+- Two new chats were opened through the app's own new-chat link, and `test` was sent through the accessibility
+  API after checking the target composer. The first test chat showed the visible assistant reply.
+- No request matched the `chat_conversations/…/completion` candidates. Sending produced POST requests whose
+  route shape is `/{id}/{id}/{id}` (no segment in the fixed route vocabulary) with non-JSON bodies, plus
+  conversation reads under `/api/organizations/{id}/chat_conversations/{id}/{id}`.
+- `Accept-Language`: on all 15 inspected requests, a single locale equal to the profile (`en-GB`), not the system
+  (`en-US`).
+- Time zone: no field observed. The non-JSON bodies were not parsed in run 1; the add-on now classifies content
+  types and parses protobuf/Connect bodies for zone and locale fields (field numbers and match flags only).
+- Restore: pending at the time of writing (trust removal waits for the user's macOS authentication).
 
 ## Runtime observations (Claude Desktop 3.1623.0)
 

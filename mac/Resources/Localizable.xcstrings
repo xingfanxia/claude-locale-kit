@@ -16,6 +16,12 @@
     "Adds DISABLE_TELEMETRY=1 when Claude Code starts with this profile. Turning off telemetry (metrics) also turns off feature-flag fetching and may affect Remote Control. Error reporting is a separate switch below." : {
 
     },
+    "After you quit Claude Desktop, opening it the usual way starts it normally again." : {
+
+    },
+    "Asks Claude Desktop to quit (it may ask about unsaved work), then starts it with this time zone and language for that launch only." : {
+
+    },
     "Check the saved profile" : {
 
     },
@@ -32,6 +38,9 @@
 
     },
     "Claude Code started from this app reads this file. To use the same settings in Chrome, import the file in the browser extension." : {
+
+    },
+    "Claude Desktop" : {
 
     },
     "Claude Desktop chat" : {
@@ -101,7 +110,7 @@
     "Opens a new Terminal window that starts Claude Code with the saved profile." : {
 
     },
-    "Pending. Not covered until a local proxy approach has been tested. This app never restarts or changes Claude Desktop." : {
+    "Partly tested. Restart with Profile starts Claude Desktop with this language and time zone for that launch. In a live test, chat requests carried the profile's language; whether chat sends the profile's time zone is not verified yet." : {
 
     },
     "Profile" : {
@@ -111,6 +120,18 @@
 
     },
     "Reported by /bin/date" : {
+
+    },
+    "Restart Normally" : {
+
+    },
+    "Restart normally" : {
+
+    },
+    "Restart with Profile" : {
+
+    },
+    "Restart with this profile" : {
 
     },
     "Reveal in Finder" : {
@@ -123,6 +144,9 @@
 
     },
     "Save Profile" : {
+
+    },
+    "Save the profile first: Claude Desktop starts with the saved profile." : {
 
     },
     "Save the profile to check it." : {
@@ -147,6 +171,9 @@
 
     },
     "Starts /bin/date with the profile’s environment and compares the UTC offset it reports." : {
+
+    },
+    "Starts Claude Desktop with your Mac's own time zone and language again." : {
 
     },
     "TZ, LANG and LC_ALL apply to the process claude-locale starts and to its child processes. Other request details are not changed." : {
@@ -195,6 +222,9 @@
 
     },
     "claude-locale check returned no readable result (%@)." : {
+
+    },
+    "claude-locale desktop exited with status %d." : {
 
     },
     "claude.ai in Chrome" : {

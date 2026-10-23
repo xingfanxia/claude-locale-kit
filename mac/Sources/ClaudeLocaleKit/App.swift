@@ -3,7 +3,7 @@ import SwiftUI
 
 enum AppInfo {
     static let name = "Claude Locale Kit"
-    static let version = "0.1.0"
+    static let version = "0.2.0"
 }
 
 struct ClaudeLocaleKitApp: App {

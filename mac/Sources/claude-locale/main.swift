@@ -37,7 +37,7 @@ installing after 300 s (nothing started), 127 Claude Desktop not installed.
 Default profile: $XDG_CONFIG_HOME/claude-locale-kit/profile.json or ~/.config/claude-locale-kit/profile.json
 """
 
-let version = "0.1.0"
+let version = "0.2.0"
 
 func fail(_ message: String, code: Int32) -> Never {
     FileHandle.standardError.write(Data("claude-locale: \(message)\n".utf8))
