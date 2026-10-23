@@ -77,6 +77,17 @@ def test_only_known_names_under_known_containers():
         assert s not in dumped
 
 
+def test_route_shapes_keep_only_vocabulary_words():
+    assert la.route_shape("/api/organizations/{x}/projects/secretclient/docs") == "/api/organizations/{id}/projects/{id}/{id}"
+    assert la.route_shape("/api/organizations/1f0c2a9e-0000-4000-8000-000000000000/chat_conversations/abc123/completion?q=SECRET") \
+        == "/api/organizations/{id}/chat_conversations/{id}/completion"
+    assert la.route_shape("/api/My-Project/Slug0SECRET/42") == "/api/{id}/{id}/{id}"
+    assert la.route_shape("/" + "/".join(["a"] * 13)) == "{too_long}"
+    assert la.load_config({"mode": "audit", "hosts": ["claude.ai"], "discoverRoutes": True}, detect=False).discover
+    with pytest.raises(la.ConfigError):
+        la.load_config({"mode": "audit", "hosts": [], "discoverRoutes": "yes"}, detect=False)
+
+
 def test_node_budget_is_bounded():
     r = la.json_signals({"metadata": [{"context": {}}] * (la.MAX_NODES + 10)}, la.Classifier({}))
     assert r["status"] == "truncated" and r["fields"] == []
@@ -318,6 +329,11 @@ def test_audit_end_to_end(world):
     assert body["status"] == "inspected" and body["skipped_containers"] == 2 and body["other_keys"] == 1
     assert {f["at"]: f["matches"] for f in body["fields"]} == {"$.timezone": ["system_zone"], "$.locale": ["system_locale"]}
     assert reqs[2]["body"] == {"status": "skipped_too_large"} and reqs[3]["body"] == {"status": "empty"}
+    # Completed template responses: status and content class only; the cancelled stream has none.
+    resps = [r for r in recs if r["event"] == "response"]
+    assert resps[0] == {"ts": resps[0]["ts"], "event": "response", "template": TEMPLATE, "status": 200, "content": "event_stream"}
+    assert all(set(r) == {"ts", "event", "template", "status", "content"} for r in resps)
+    assert len(resps) == len(reqs) - 1, "every template request but the cancelled one has a response record"
     for s in SECRETS + ["KEY0SECRET", "SLUG0SECRET", "QKEY0SECRET", "HEADER0SECRET", "header0secret", "sni0secret", "sessionKey",
                         "Bearer", "x-test-mode", "METHOD0SECRET", "cookie", "authorization", "prompt", "messages", "?", "“"]:
         assert s not in text, f"log leaked {s!r}"
@@ -380,3 +396,52 @@ def test_summarize_builds_tables_from_log_records():
     assert f"| `{TEMPLATE}` | `header accept-language` | locale_list | system_locale | 1 |" in md
     assert f"| `{TEMPLATE}` | `body $.timezone` | iana_zone | system_zone | 1 |" in md
     assert f"| `{TEMPLATE}` | inspected | 1 |" in md and "| tunnel | 1 |" in md
+
+
+def _pb_varint(n: int) -> bytes:
+    n &= (1 << 64) - 1
+    out = b""
+    while True:
+        b, n = n & 0x7F, n >> 7
+        out += bytes([b | (0x80 if n else 0)])
+        if not n:
+            return out
+
+
+def _pb(*fields) -> bytes:
+    """Encode (number, value) pairs: int -> varint, bytes/str -> length-delimited."""
+    out = b""
+    for num, v in fields:
+        if isinstance(v, int):
+            out += _pb_varint(num << 3) + _pb_varint(v)
+        else:
+            b = v.encode() if isinstance(v, str) else v
+            out += _pb_varint(num << 3 | 2) + _pb_varint(len(b)) + b
+    return out
+
+
+def test_proto_bodies_record_field_numbers_and_flags_only():
+    cls = la.Classifier({"system_zone": "Asia/Shanghai", "profile_zone": "Asia/Tokyo", "system_locale": "en-US",
+                         "profile_locale": "en-GB"}, now=dt.datetime(2026, 1, 15, 12, tzinfo=dt.timezone.utc))
+    msg = _pb((1, "PROMPT0SECRET is here"), (2, _pb((3, "Asia/Tokyo"), (4, "en-GB"), (5, -540))),
+              (6, "0123456789abcdef-SECRET"), (7, 480), (8, 12))
+    r = la.proto_signals(msg, cls, enveloped=False)
+    assert r["status"] == "inspected_proto"
+    got = {f["at"]: (f["kind"], f["matches"]) for f in r["fields"]}
+    assert got == {"#.2.3": ("iana_zone", ["profile_zone"]), "#.2.4": ("locale", ["profile_locale"]),
+                   "#.2.5": ("number", ["profile_offset"]), "#.7": ("number", ["system_offset"])}
+    assert r["other_fields"] >= 3
+    assert "SECRET" not in json.dumps(r) and "PROMPT" not in json.dumps(r)
+    framed = b"\x00" + len(msg).to_bytes(4, "big") + msg
+    assert la.proto_signals(framed, cls, enveloped=True)["fields"] == r["fields"]
+    assert la.proto_signals(b"\x01" + framed[1:], cls, enveloped=True) == {"status": "skipped_compressed"}
+    assert la.proto_signals(b"\xff\xff", cls, enveloped=False) == {"status": "invalid_proto"}
+
+
+def test_content_class_and_size_are_fixed_enums():
+    assert la.content_class("application/connect+proto") == "connect_proto"
+    assert la.content_class("application/vnd.api+json") == "json"
+    assert la.content_class("application/x-secret0type") == "other"
+    assert la.content_class("") == "none"
+    assert [la.size_bucket(n) for n in (None, 0, 10, 5000, 200_000, 10**7)] == \
+        ["unknown", "0", "<1KiB", "<16KiB", "<256KiB", "larger"]

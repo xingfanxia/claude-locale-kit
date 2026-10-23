@@ -52,7 +52,23 @@ KNOWN_HEADERS = frozenset({
     "x-user-timezone", "x-locale", "x-client-locale", "x-user-locale", "x-language",
 })
 
-CONFIG_KEYS = {"mode", "hosts", "paths", "systemZone", "systemLocale", "profileZone", "profileLocale", "comment"}
+CONFIG_KEYS = {"mode", "hosts", "paths", "discoverRoutes", "systemZone", "systemLocale", "profileZone", "profileLocale",
+               "comment"}
+# Route-shape discovery keeps a path segment only if it is in this fixed vocabulary of structural
+# route words; every other segment, lowercase or not, becomes {id}, so names and IDs never appear.
+# Source: the claude.ai API path literals in Claude Desktop 3.6556.2's app.asar, plus the generic
+# route words in the last line.
+SHAPE_VOCAB = frozenset("""
+account account_profile accounts api artifacts auth batch bootstrap browser_extension bundle call can_install
+chat_conversations claude_cli claude_cli_feedback claude_code comments contents conversations cowork create_api_key cri
+current_user_access db desktop domain_info dxt event_logging favorite features files frame graphql installed_check
+internal library license local_pairing logout lti marketplace marketplaces mcp members memory memory_import
+microsoft_entra_tenants model_selector npm oauth onboarding organizations plugins policy_limits profile projects
+quick_write_requests remote_devices retitle roles rum scheduled_tasks self servers session_deletions settings
+share_from_content skills start sync token trusted_devices update url_hash_check usage user web web_fetch wiggle
+completion retry_completion messages message conversation chat chats new sessions session code watch v1 v2 v3 stream
+""".split())
+MAX_SHAPE_SEGMENTS = 12
 HOST_RE = re.compile(r"^(?=.{1,253}$)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$")
 SEGMENT_RE = re.compile(r"^(?:\{id\}|[A-Za-z0-9_.~-]{1,64})$")
 LOCALE_RE = re.compile(r"^[a-z]{2,3}(?:[-_][A-Z][a-z]{3})?(?:[-_](?:[A-Z]{2}|\d{3}))?$")
@@ -74,7 +90,9 @@ class ConfigError(ValueError):
 
 class Config:
     # A plain class: mitmproxy loads scripts outside sys.modules, which @dataclass cannot handle.
-    def __init__(self, hosts: frozenset[str], paths: tuple[tuple[str, ...], ...], refs: dict[str, str]):
+    def __init__(self, hosts: frozenset[str], paths: tuple[tuple[str, ...], ...], refs: dict[str, str],
+                 discover: bool = False):
+        self.discover = discover
         self.hosts = hosts
         self.paths = paths
         self.refs = refs  # label -> reference zone or locale
@@ -122,6 +140,9 @@ def load_config(raw: Any, detect: bool = True) -> Config:
         templates.append(segs)
     if templates and not hosts:
         raise ConfigError('"paths" needs at least one host')
+    discover = raw.get("discoverRoutes", False)
+    if not isinstance(discover, bool):
+        raise ConfigError('"discoverRoutes" must be true or false')
     refs: dict[str, str] = {}
     for key, label, auto in (("systemZone", "system_zone", _system_zone), ("profileZone", "profile_zone", None),
                              ("systemLocale", "system_locale", _system_locale), ("profileLocale", "profile_locale", None)):
@@ -133,7 +154,15 @@ def load_config(raw: Any, detect: bool = True) -> Config:
         if not isinstance(value, str) or not (value in ZONES if key.endswith("Zone") else LOCALE_RE.match(value)):
             raise ConfigError(f'"{key}" must be a {"time zone" if key.endswith("Zone") else "locale tag"}')
         refs[label] = value
-    return Config(frozenset(hosts), tuple(templates), refs)
+    return Config(frozenset(hosts), tuple(templates), refs, discover)
+
+
+def route_shape(path: str) -> str:
+    """The path with every segment outside SHAPE_VOCAB replaced by {id}; no query."""
+    segs = path.split("?", 1)[0].split("#", 1)[0].split("/")[1:]
+    if len(segs) > MAX_SHAPE_SEGMENTS:
+        return "{too_long}"
+    return "/" + "/".join(s if s in SHAPE_VOCAB else "{id}" for s in segs)
 
 
 def match_template(path: str, templates: tuple[tuple[str, ...], ...]) -> str | None:
@@ -251,6 +280,145 @@ def json_signals(doc: Any, cls: Classifier) -> dict[str, Any]:
             "other_keys": other_keys, "skipped_containers": skipped, "unlisted_exact_value_matches": unlisted_exact}
 
 
+# ---- protobuf bodies (Connect / gRPC): field numbers and match flags only ----------------------
+CONTENT_CLASSES = {
+    "application/json": "json", "application/proto": "proto", "application/x-protobuf": "proto",
+    "application/protobuf": "proto", "application/connect+proto": "connect_proto", "application/grpc": "grpc",
+    "application/grpc+proto": "grpc", "application/grpc-web+proto": "grpc_web",
+    "application/x-www-form-urlencoded": "form", "text/plain": "text",
+}
+PROTO_CLASSES = frozenset({"proto", "connect_proto", "grpc", "grpc_web"})
+ENVELOPED = frozenset({"connect_proto", "grpc", "grpc_web"})
+# A protobuf string is recorded (path, kind, match flags; never the value) only if it classifies as one of these.
+PROTO_KINDS = frozenset({"iana_zone", "locale", "locale_list", "utc_offset", "datetime_with_offset", "datetime_no_zone", "date"})
+
+
+def content_class(ctype: str) -> str:
+    """A fixed enum for a Content-Type; the raw header is never recorded."""
+    if not ctype:
+        return "none"
+    if ctype.endswith("+json"):
+        return "json"
+    return CONTENT_CLASSES.get(ctype, "other")
+
+
+def size_bucket(n: int | None) -> str:
+    if n is None:
+        return "unknown"
+    for limit, label in ((0, "0"), (1024, "<1KiB"), (16 * 1024, "<16KiB"), (MAX_AUDIT_BYTES, "<256KiB")):
+        if n <= limit:
+            return label
+    return "larger"
+
+
+class _Budget(Exception):
+    pass
+
+
+def _varint(buf: bytes, i: int) -> tuple[int, int]:
+    val, shift = 0, 0
+    while True:
+        if i >= len(buf) or shift > 63:
+            raise ValueError("bad varint")
+        b = buf[i]
+        i += 1
+        val |= (b & 0x7F) << shift
+        if not b & 0x80:
+            return val, i
+        shift += 7
+
+
+def _proto_fields(buf: bytes) -> list[tuple[int, int, Any]]:
+    """Every (field number, wire type, value) of one message, or ValueError if it is not one."""
+    out, i = [], 0
+    while i < len(buf):
+        key, i = _varint(buf, i)
+        num, wire = key >> 3, key & 7
+        if num == 0:
+            raise ValueError("field 0")
+        if wire == 0:
+            v, i = _varint(buf, i)
+        elif wire == 1:
+            v, i = buf[i:i + 8], i + 8
+        elif wire == 5:
+            v, i = buf[i:i + 4], i + 4
+        elif wire == 2:
+            n, i = _varint(buf, i)
+            v, i = buf[i:i + n], i + n
+        else:
+            raise ValueError("unsupported wire type")
+        if i > len(buf):
+            raise ValueError("truncated")
+        out.append((num, wire, v))
+    return out
+
+
+def proto_signals(raw: bytes, cls: Classifier, enveloped: bool) -> dict[str, Any]:
+    """Protobuf counterpart of json_signals. Field paths are numbers (#1.4); a string field is
+    recorded only when its value classifies as a zone/locale/offset/date or equals a reference, and
+    an integer only when it equals a reference UTC offset in minutes. Values are never recorded."""
+    frames = [raw]
+    if enveloped:
+        frames, i = [], 0
+        while i < len(raw):
+            if i + 5 > len(raw):
+                return {"status": "invalid_proto"}
+            flag, n = raw[i], int.from_bytes(raw[i + 1:i + 5], "big")
+            if flag & 1:
+                return {"status": "skipped_compressed"}
+            frames.append(raw[i + 5:i + 5 + n])
+            i += 5 + n
+        if i != len(raw):
+            return {"status": "invalid_proto"}
+    fields: dict[tuple[str, str, tuple[str, ...]], int] = {}
+    tally = {"nodes": 0, "other": 0}
+
+    def walk(buf: bytes, prefix: str, depth: int) -> bool:
+        try:
+            items = _proto_fields(buf)
+        except ValueError:
+            return False
+        for num, wire, v in items:
+            tally["nodes"] += 1
+            if tally["nodes"] > MAX_NODES:
+                raise _Budget
+            path = f"{prefix}.{num}"
+            if wire == 0:
+                signed = v - (1 << 64) if v >= 1 << 63 else v
+                m = cls.matches(signed)
+                if m:
+                    key = (path, "number", tuple(m))
+                    fields[key] = fields.get(key, 0) + 1
+                    continue
+            elif wire == 2:
+                text = None
+                if 0 < len(v) <= MAX_VALUE_LEN:
+                    try:
+                        text = v.decode("utf-8")
+                    except UnicodeDecodeError:
+                        text = None
+                if text is not None and text.isprintable():
+                    kind, m = cls.kind(text), cls.matches(text)
+                    if kind in PROTO_KINDS or m:
+                        key = (path, kind, tuple(m))
+                        fields[key] = fields.get(key, 0) + 1
+                        continue
+                if v and depth < MAX_DEPTH and walk(v, path, depth + 1):
+                    continue
+            tally["other"] += 1
+        return True
+
+    try:
+        for frame in frames:
+            if not walk(frame, "#", 0):
+                return {"status": "invalid_proto"}
+    except _Budget:
+        return {"status": "truncated", "fields": [], "other_fields": tally["other"]}
+    return {"status": "inspected_proto",
+            "fields": [{"at": p, "kind": k, "matches": list(m), "count": n} for (p, k, m), n in sorted(fields.items())],
+            "other_fields": tally["other"]}
+
+
 class LocaleAudit:
     def __init__(self) -> None:
         self.config: Config | None = None
@@ -300,14 +468,20 @@ class LocaleAudit:
         template = match_template(req.path, self.config.paths)
         if template is None:
             req.stream = True
-            self._write({"event": "unmatched_route", "host": host})
+            record = {"event": "unmatched_route", "host": host}
+            if self.config.discover:
+                record["method"] = req.method if req.method in METHODS else "OTHER"
+                record["shape"] = route_shape(req.path)
+            self._write(record)
             return
         flow.metadata["cla_template"] = template
         ctype = (req.headers.get("content-type") or "").split(";", 1)[0].strip().lower()
         length = req.headers.get("content-length")
         encoding = (req.headers.get("content-encoding") or "identity").strip().lower()
+        cclass = content_class(ctype)
+        flow.metadata["cla_class"] = cclass
         status = None
-        if not (ctype == "application/json" or ctype.endswith("+json")):
+        if cclass != "json" and cclass not in PROTO_CLASSES:
             status = "not_json" if length not in (None, "0") or "transfer-encoding" in req.headers else "empty"
         elif encoding != "identity":
             status = "skipped_encoded"
@@ -328,6 +502,8 @@ class LocaleAudit:
             body: dict[str, Any] = {"status": "empty"}
         elif len(raw) > MAX_AUDIT_BYTES:
             body = {"status": "skipped_too_large"}
+        elif flow.metadata.get("cla_class") in PROTO_CLASSES:
+            body = proto_signals(raw, cls, flow.metadata["cla_class"] in ENVELOPED)
         else:
             try:
                 body = json_signals(json.loads(raw), cls)
@@ -357,13 +533,29 @@ class LocaleAudit:
                 other_query += 1
                 for label in cls.exact(v):
                     unlisted[label] = unlisted.get(label, 0) + 1
+        length = req.headers.get("content-length")
         self._write({"event": "request", "host": req.pretty_host.lower(), "method": req.method if req.method in METHODS else "OTHER",
-                     "template": flow.metadata["cla_template"], "headers": headers, "other_headers": other_headers,
+                     "template": flow.metadata["cla_template"], "content": flow.metadata.get("cla_class", "none"),
+                     "size": size_bucket(int(length) if length and length.isdigit() else None), "headers": headers, "other_headers": other_headers,
                      "query": query, "other_query": other_query, "unlisted_exact_value_matches": unlisted, "body": body})
 
     # -- responses: never read, always streamed -------------------------------------------------
     def responseheaders(self, flow: http.HTTPFlow) -> None:
         flow.response.stream = True
+
+    def response(self, flow: http.HTTPFlow) -> None:
+        """Runs once a streamed response has been forwarded in full. For template routes only, it
+        records the status code and a fixed content class, which shows that a request (for example
+        the test chat's message) got a complete answer. The body is never read."""
+        template = flow.metadata.get("cla_template")
+        if template is None:
+            return
+        code = flow.response.status_code
+        ctype = (flow.response.headers.get("content-type") or "").split(";", 1)[0].strip().lower()
+        content = ("event_stream" if ctype == "text/event-stream" else "json" if ctype == "application/json"
+                   else "none" if not ctype else "other")
+        self._write({"event": "response", "template": template, "status": code if 100 <= code <= 599 else 0,
+                     "content": content})
 
 
 addons = [LocaleAudit()]

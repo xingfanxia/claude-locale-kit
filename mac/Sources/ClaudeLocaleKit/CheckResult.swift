@@ -89,6 +89,32 @@ enum CLIRunner {
     }
 }
 
+extension CLIRunner {
+    /// Runs the bundled CLI with a fixed argument list (no shell); returns its exit status and
+    /// first output lines. Terminated after `timeout` seconds.
+    static func run(cli: URL, arguments: [String], timeout: TimeInterval) async -> (status: Int32, out: String, err: String) {
+        await Task.detached(priority: .userInitiated) { () -> (Int32, String, String) in
+            let process = Process()
+            process.executableURL = cli
+            process.arguments = arguments
+            let out = Pipe()
+            let err = Pipe()
+            process.standardOutput = out
+            process.standardError = err
+            process.standardInput = FileHandle.nullDevice
+            do { try process.run() } catch { return (-1, "", error.localizedDescription) }
+            let timer = DispatchWorkItem { if process.isRunning { process.terminate() } }
+            DispatchQueue.global().asyncAfter(deadline: .now() + timeout, execute: timer)
+            let stdout = out.fileHandleForReading.readDataToEndOfFile()
+            let stderr = err.fileHandleForReading.readDataToEndOfFile()
+            process.waitUntilExit()
+            timer.cancel()
+            let text = { (d: Data) in String(decoding: d, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines) }
+            return (process.terminationStatus, text(stdout), text(stderr).replacingOccurrences(of: "claude-locale: ", with: ""))
+        }.value
+    }
+}
+
 struct CheckFailure: Error, Equatable {
     var message: String
 }

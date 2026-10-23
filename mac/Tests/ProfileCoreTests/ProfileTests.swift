@@ -48,6 +48,16 @@ final class ProfileTests: XCTestCase {
         XCTAssertFalse(s.contains("LANG"))
     }
 
+    func testDesktopLaunchSetsZoneAndLanguageForThatLaunchOnly() {
+        let app = URL(fileURLWithPath: "/Applications/Claude.app")
+        let p = Profile(timeZone: "Asia/Tokyo", locale: "en-GB")
+        XCTAssertEqual(DesktopLaunch.openArguments(app: app, profile: p),
+                       ["-a", "/Applications/Claude.app", "--env", "TZ=Asia/Tokyo", "--args", "-AppleLanguages", "(en-GB)"])
+        XCTAssertEqual(DesktopLaunch.openArguments(app: app, profile: p, extra: ["--x"]).suffix(3), ["-AppleLanguages", "(en-GB)", "--x"])
+        XCTAssertEqual(DesktopLaunch.openArguments(app: app, profile: nil), ["-a", "/Applications/Claude.app"],
+                       "a normal launch carries no profile")
+    }
+
     func testDefaultURLHonoursAbsoluteXDGOnly() {
         XCTAssertEqual(Profile.defaultURL(environment: ["XDG_CONFIG_HOME": "/tmp/x"]).path, "/tmp/x/claude-locale-kit/profile.json")
         XCTAssertTrue(Profile.defaultURL(environment: ["XDG_CONFIG_HOME": "relative"]).path.hasSuffix("/.config/claude-locale-kit/profile.json"))

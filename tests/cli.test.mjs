@@ -137,3 +137,13 @@ test("check --json reports configured and observed values", () => {
   assert.equal(missing.status, 1);
   assert.equal(JSON.parse(missing.stdout).profileError, "No profile saved yet.");
 });
+
+test("--restart and --normal belong to desktop only: run forwards them, check rejects them", () => {
+  const r = cli(["run", "--profile", join(dir, "plain.json"), "--restart", "--normal"]);
+  assert.equal(r.status, 0, r.stderr);
+  assert.deepEqual(r.stdout.match(/^arg=\[.*\]$/gm), ["arg=[--restart]", "arg=[--normal]"]);
+  assert.equal(cli(["check", "--restart"]).status, 2);
+  // Usage errors stop before Claude Desktop is looked up, so these never touch the real app.
+  assert.equal(cli(["desktop", "--normal", "--tz", "UTC"]).status, 2);
+  assert.equal(cli(["desktop", "--bogus"]).status, 2);
+});

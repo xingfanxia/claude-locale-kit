@@ -64,6 +64,7 @@ def env(tmp_path):
         **os.environ, "FAKE_STATE": str(state), "CLA_APP": str(app), "CLA_SECURITY": str(bin_dir / "security"),
         "CLA_OPEN": str(bin_dir / "open"), "CLA_KEYCHAIN": str(tmp_path / "fake.keychain-db"),
         "CLA_CA_DIR": str(tmp_path / "ca"), "CLA_WORK": str(tmp_path / "work"),
+        "CLA_CLI": "",  # never the real claude-locale: it targets the real Claude Desktop by bundle ID
         "CLA_QUIT_TIMEOUT": "2", "CLA_CHAT_TIMEOUT": "2",
     }
 

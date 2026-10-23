@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import ProfileCore
 
@@ -8,6 +9,8 @@ import ProfileCore
 let usage = """
 Usage:
   claude-locale run [--profile PATH] [--tz ZONE] [--locale TAG] [--claude PATH] [--] [claude args...]
+  claude-locale desktop [--profile PATH] [--tz ZONE] [--locale TAG] [--restart] [-- app args...]
+  claude-locale desktop --normal [--restart]
   claude-locale check [--profile PATH] [--json]
   claude-locale settings-snippet [--profile PATH]
   claude-locale validate FILE
@@ -15,6 +18,10 @@ Usage:
 
 run         Start Claude Code with TZ, LANG and LC_ALL from the profile (plus the
             DISABLE_TELEMETRY / DISABLE_ERROR_REPORTING opt-outs when enabled).
+desktop     Start Claude Desktop with TZ from the profile and the profile's locale as its
+            preferred language (-AppleLanguages), for that launch only. --normal starts it
+            without them. If it is running, nothing happens unless --restart is given; then
+            it is asked to quit normally (it may ask about unsaved work) and waited for.
 check       Show the configured profile next to what /bin/date observes with it.
 settings-snippet
             Print a Claude Code settings "env" block with only the opt-outs.
@@ -23,6 +30,9 @@ validate    Exit 0 if FILE is a valid v1 profile, 1 otherwise.
 
 Exit status of run: Claude Code's own once it starts (same PID, signals go to it).
 Before that: 2 usage or profile error, 126 claude not executable, 127 claude not found.
+Exit status of desktop: 0 started, 2 usage or profile error, 3 running (no --restart),
+4 did not quit within 60 s, 5 not running after the launch request, 6 an update was still
+installing after 300 s (nothing started), 127 Claude Desktop not installed.
 
 Default profile: $XDG_CONFIG_HOME/claude-locale-kit/profile.json or ~/.config/claude-locale-kit/profile.json
 """
@@ -40,10 +50,18 @@ struct Options {
     var locale: String?
     var claudePath: String?
     var json = false
+    var restart = false
+    var normal = false
     var rest: [String] = []
 }
 
-func parseOptions(_ args: ArraySlice<String>, allowPassthrough: Bool) -> Options {
+/// `allowPassthrough`: arguments after `--` are kept. `unknownStartsPassthrough` (run only): the
+/// first unrecognised argument also starts them.
+/// `desktopFlags`: --restart and --normal are options (desktop only; for run they are Claude
+/// Code's own arguments and pass through).
+func parseOptions(_ args: ArraySlice<String>, allowPassthrough: Bool, unknownStartsPassthrough: Bool? = nil,
+                  desktopFlags: Bool = false) -> Options {
+    let unknownPasses = unknownStartsPassthrough ?? allowPassthrough
     var o = Options()
     var it = args.makeIterator()
     func value(_ flag: String) -> String {
@@ -57,13 +75,15 @@ func parseOptions(_ args: ArraySlice<String>, allowPassthrough: Bool) -> Options
         case "--locale": o.locale = value(a)
         case "--claude": o.claudePath = value(a)
         case "--json": o.json = true
+        case "--restart" where desktopFlags: o.restart = true
+        case "--normal" where desktopFlags: o.normal = true
         case "--":
             guard allowPassthrough else { fail("unexpected --", code: 2) }
             while let r = it.next() { o.rest.append(r) }
         default:
             // For `run`, the first argument the wrapper does not recognise starts Claude Code's
             // own arguments, so `claude-locale run --model opus` passes `--model opus` through.
-            guard allowPassthrough else { fail("unknown option \(a)", code: 2) }
+            guard unknownPasses else { fail("unknown option \(a)", code: 2) }
             o.rest.append(a)
             while let r = it.next() { o.rest.append(r) }
         }
@@ -121,6 +141,73 @@ func run(_ o: Options) -> Never {
     execve(claude, &cArgs, &cEnv)
     let err = errno
     fail("could not start \(claude): \(String(cString: strerror(err)))", code: err == ENOENT ? 127 : 126)
+}
+
+/// Starts Claude Desktop through /usr/bin/open (the route the live test used), with the profile's
+/// TZ and -AppleLanguages unless --normal. Never forces a quit.
+func desktop(_ o: Options) -> Never {
+    let profile: Profile? = o.normal ? nil : resolveProfile(o)
+    if o.normal, o.timeZone != nil || o.locale != nil || o.profilePath != nil {
+        fail("--normal takes no profile, --tz or --locale", code: 2)
+    }
+    guard let app = NSWorkspace.shared.urlForApplication(withBundleIdentifier: DesktopLaunch.bundleID) else {
+        fail("Claude Desktop is not installed.", code: 127)
+    }
+    let running = NSRunningApplication.runningApplications(withBundleIdentifier: DesktopLaunch.bundleID)
+    if !running.isEmpty {
+        guard o.restart else {
+            fail("Claude Desktop is running. Quit it first, or pass --restart to ask it to quit normally.", code: 3)
+        }
+        running.forEach { _ = $0.terminate() }
+        let deadline = Date().addingTimeInterval(60)
+        while running.contains(where: { !$0.isTerminated }), Date() < deadline {
+            RunLoop.current.run(until: Date().addingTimeInterval(0.25))
+        }
+        if running.contains(where: { !$0.isTerminated }) {
+            fail("Claude Desktop did not quit within 60 s; it may be asking you something. Nothing was started.", code: 4)
+        }
+    }
+    guard updateInstallerFinished() else {
+        fail("a Claude Desktop update was still installing after 300 s. Nothing was started; try again shortly.", code: 6)
+    }
+    let open = Process()
+    open.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+    open.arguments = DesktopLaunch.openArguments(app: app, profile: profile, extra: o.rest)
+    do { try open.run() } catch { fail("could not run open: \(error.localizedDescription)", code: 5) }
+    open.waitUntilExit()
+    guard open.terminationStatus == 0 else { fail("open exited with status \(open.terminationStatus)", code: 5) }
+    // open's exit status only says the request was accepted; wait for the process itself.
+    let started = Date().addingTimeInterval(20)
+    while NSRunningApplication.runningApplications(withBundleIdentifier: DesktopLaunch.bundleID).isEmpty, Date() < started {
+        RunLoop.current.run(until: Date().addingTimeInterval(0.25))
+    }
+    if NSRunningApplication.runningApplications(withBundleIdentifier: DesktopLaunch.bundleID).isEmpty {
+        fail("the launch was requested, but Claude Desktop was not running 20 s later.", code: 5)
+    }
+    if let profile {
+        print("Claude Desktop is running, started with TZ=\(profile.timeZone) and preferred language \(profile.locale) (this launch only).")
+    } else {
+        print("Claude Desktop is running, started normally.")
+    }
+    exit(0)
+}
+
+/// A staged auto-update installs when Claude Desktop quits; starting it before the installer
+/// finishes could launch a bundle mid-replacement. True once no installer runs (waits ≤ 300 s).
+func updateInstallerFinished() -> Bool {
+    let deadline = Date().addingTimeInterval(300)
+    repeat {
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/usr/bin/pgrep")
+        p.arguments = ["-f", "\(DesktopLaunch.bundleID).ShipIt"]
+        p.standardOutput = FileHandle.nullDevice
+        guard (try? p.run()) != nil else { return false }
+        p.waitUntilExit()
+        if p.terminationStatus == 1 { return true }  // pgrep: no match
+        if p.terminationStatus != 0 { return false }
+        Thread.sleep(forTimeInterval: 1)
+    } while Date() < deadline
+    return false
 }
 
 struct Observed: Encodable {
@@ -198,6 +285,8 @@ let args = CommandLine.arguments.dropFirst()
 switch args.first {
 case "run":
     run(parseOptions(args.dropFirst(), allowPassthrough: true))
+case "desktop":
+    desktop(parseOptions(args.dropFirst(), allowPassthrough: true, unknownStartsPassthrough: false, desktopFlags: true))
 case "check":
     check(parseOptions(args.dropFirst(), allowPassthrough: false))
 case "settings-snippet":

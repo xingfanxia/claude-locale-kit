@@ -23,6 +23,7 @@ final class AppModel: ObservableObject {
     @Published var zoneQuery = ""
     @Published private(set) var check: CheckState
     @Published var notice: Notice?
+    @Published private(set) var desktopBusy = false
 
     let profileURL: URL
     let hostZone: TimeZone
@@ -126,6 +127,26 @@ final class AppModel: ObservableObject {
             }
         } catch {
             notice = .error(String(localized: "Could not write the launch script: \(error.localizedDescription)"))
+        }
+    }
+
+    /// Restarts Claude Desktop through the bundled CLI: with the saved profile, or normally. Only
+    /// ever called from a button. The CLI asks Desktop to quit the normal way and never forces it.
+    func restartDesktop(withProfile: Bool) {
+        guard let cli else {
+            notice = .error(String(localized: "The bundled claude-locale tool is missing. Reinstall the app."))
+            return
+        }
+        let arguments = withProfile ? ["desktop", "--restart", "--profile", profileURL.path] : ["desktop", "--normal", "--restart"]
+        desktopBusy = true
+        Task {
+            let r = await CLIRunner.run(cli: cli, arguments: arguments, timeout: 420)
+            desktopBusy = false
+            if r.status == 0 {
+                notice = .info(r.out)
+            } else {
+                notice = .error(r.err.isEmpty ? String(localized: "claude-locale desktop exited with status \(r.status).") : r.err)
+            }
         }
     }
 

@@ -18,8 +18,12 @@
 # Output: scratch/data/desktop-proxy/live-<time>/: app.txt (Desktop version and app.asar SHA-256
 # of the build that ran), the sanitized audit JSONL, summary.md, restore.txt.
 # Exit status: 0 ok; 1 a step failed; 2 usage; 3 cleanup could not verify removal; 130/143 signal.
+# With the built CLI (dist/claude-locale, or CLA_CLI), Desktop is restarted through the product
+# path, `claude-locale desktop --restart` (a normal quit, then a launch with the profile and the
+# proxy flag), and restored with `claude-locale desktop --normal --restart`. Without it, the user
+# quits Desktop and the script starts it with /usr/bin/open.
 # Test hooks (tests/test_live_audit.py): CLA_APP, CLA_SECURITY, CLA_KEYCHAIN, CLA_OPEN, CLA_WORK,
-# CLA_QUIT_TIMEOUT, CLA_CHAT_TIMEOUT, CLA_CA_DIR.
+# CLA_QUIT_TIMEOUT, CLA_CHAT_TIMEOUT, CLA_CA_DIR, CLA_CLI (empty = no CLI).
 set -eu
 here=$(cd "$(dirname "$0")" && pwd)
 root=$(cd "$here/../.." && pwd)
@@ -40,6 +44,8 @@ app="${CLA_APP:-/Applications/Claude.app}"
 security="${CLA_SECURITY:-/usr/bin/security}"
 keychain="${CLA_KEYCHAIN:-$HOME/Library/Keychains/login.keychain-db}"
 opener="${CLA_OPEN:-/usr/bin/open}"
+cli="${CLA_CLI-$root/dist/claude-locale}"
+[ -n "$cli" ] && [ ! -x "$cli" ] && cli=""
 ca="${CLA_CA_DIR:-$HOME/creds/claude-locale-kit/audit-ca}"
 quit_timeout="${CLA_QUIT_TIMEOUT:-600}"
 chat_timeout="${CLA_CHAT_TIMEOUT:-900}"
@@ -151,7 +157,14 @@ cleanup() {
     else echo "system proxy settings: DIFFER from the before-state"; failed=1; fi
   } > "$work/restore.txt" 2>&1
   cat "$work/restore.txt"
-  if [ "$launched" = 1 ] && desktop_running; then
+  if [ "$launched" = 1 ] && desktop_running && [ -n "$cli" ]; then
+    if "$cli" desktop --normal --restart; then
+      echo "Claude Desktop restarted normally (no proxy, no profile)" | tee -a "$work/restore.txt"; quit_seen=0
+    else
+      echo "Desktop not restarted normally: quit it and start it yourself" | tee -a "$work/restore.txt"; failed=1
+    fi
+  fi
+  if [ "$launched" = 1 ] && desktop_running && [ -z "$cli" ]; then
     say "Claude Desktop is still running with --proxy-server to the stopped proxy. Quit it (Cmd-Q); waiting up to ${quit_timeout}s."
     if ! wait_until_quit "$quit_timeout"; then
       echo "Desktop not quit: quit it and start it normally yourself" | tee -a "$work/restore.txt"; failed=1
@@ -181,11 +194,15 @@ say "2/5 Trusting it for SSL in the login keychain. macOS asks for your password
 say "3/5 Starting the audit proxy on 127.0.0.1:$port"
 $uvpy -c '
 import json, sys
+# The last four are structural shapes seen when a message was sent on Desktop 3.6556.2 (any
+# segment can match {id}); audit-only, never a rewrite target.
 paths = ["/api/organizations/{id}/chat_conversations", "/api/organizations/{id}/chat_conversations/{id}",
          "/api/organizations/{id}/chat_conversations/{id}/completion",
-         "/api/organizations/{id}/chat_conversations/{id}/retry_completion"]
+         "/api/organizations/{id}/chat_conversations/{id}/retry_completion",
+         "/api/organizations/{id}", "/api/organizations/{id}/chat_conversations/{id}/{id}",
+         "/api/organizations/{id}/{id}/{id}", "/{id}/{id}/{id}"]
 json.dump({"comment": "live-audit.sh; paths are candidates until matching requests are observed",
-           "mode": "audit", "hosts": ["claude.ai"], "paths": paths,
+           "mode": "audit", "hosts": ["claude.ai"], "paths": paths, "discoverRoutes": True,
            "profileZone": sys.argv[2], "profileLocale": sys.argv[3]}, open(sys.argv[1], "w"), indent=2)
 ' "$work/config.json" "$zone" "$locale"
 CLA_CA_DIR="$ca" CLA_OUT_DIR="$work" "$here/run.sh" "$work/config.json" "$port" > "$work/run-sh.txt" 2>&1 &
@@ -195,14 +212,23 @@ n=0; until lsof -nP -iTCP:"$port" -sTCP:LISTEN >/dev/null 2>&1; do
   sleep 1; n=$((n + 1)); [ $n -lt 120 ] || { echo "proxy did not start within 120 s" >&2; exit 1; }
 done
 
-if desktop_running; then
-  say "4/5 Quit Claude Desktop yourself (Cmd-Q in Claude). Save or finish anything open first. Waiting up to ${quit_timeout}s."
-  wait_until_quit "$quit_timeout" || { echo "Desktop was not quit; stopping" >&2; exit 1; }
+if [ -n "$cli" ]; then
+  say "4/5 Restarting Claude Desktop with the profile through the proxy (claude-locale desktop --restart)"
+  "$cli" desktop --restart --profile "$work/no-saved-profile.json" --tz "$zone" --locale "$locale" \
+    -- --proxy-server="http://127.0.0.1:$port" || { echo "claude-locale desktop failed; stopping" >&2; exit 1; }
+  quit_seen=1
+  launched=1
+  record_app
+else
+  if desktop_running; then
+    say "4/5 Quit Claude Desktop yourself (Cmd-Q in Claude). Save or finish anything open first. Waiting up to ${quit_timeout}s."
+    wait_until_quit "$quit_timeout" || { echo "Desktop was not quit; stopping" >&2; exit 1; }
+  fi
+  quit_seen=1
+  record_app
+  "$opener" -a "$app" --env "TZ=$zone" --args --proxy-server="http://127.0.0.1:$port" -AppleLanguages "($locale)"
+  launched=1
 fi
-quit_seen=1
-record_app
-"$opener" -a "$app" --env "TZ=$zone" --args --proxy-server="http://127.0.0.1:$port" -AppleLanguages "($locale)"
-launched=1
 sleep 10
 desktop_running || { echo "Claude Desktop exited at startup with --proxy-server (recorded as the result)" | tee "$work/startup.txt"; exit 1; }
 

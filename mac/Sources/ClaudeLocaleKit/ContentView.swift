@@ -16,6 +16,7 @@ struct ContentView: View {
                     ProfileSection(model: model)
                     VerifySection(model: model)
                     ClaudeCodeSection(model: model)
+                    DesktopSection(model: model)
                     SurfacesSection()
                 }
                 .formStyle(.grouped)
