@@ -545,8 +545,8 @@ class LocaleAudit:
 
     def response(self, flow: http.HTTPFlow) -> None:
         """Runs once a streamed response has been forwarded in full. For template routes only, it
-        records the status code and a fixed content class, which shows that a request (for example
-        the test chat's message) got a complete answer. The body is never read."""
+        records the status code and a fixed content class: a complete HTTP response, which by
+        itself does not show that a chat reply succeeded. The body is never read."""
         template = flow.metadata.get("cla_template")
         if template is None:
             return

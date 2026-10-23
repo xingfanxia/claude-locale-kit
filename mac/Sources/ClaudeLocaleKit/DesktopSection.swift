@@ -39,7 +39,7 @@ struct DesktopSection: View {
             if model.hasUnsavedChanges {
                 Footnote("Save the profile first: Claude Desktop starts with the saved profile.")
             } else {
-                Footnote("Opening Claude Desktop yourself later starts it normally again.")
+                Footnote("After you quit Claude Desktop, opening it the usual way starts it normally again.")
             }
         }
     }

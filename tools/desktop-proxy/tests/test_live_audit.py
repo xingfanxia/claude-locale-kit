@@ -36,6 +36,22 @@ esac
 """
 
 
+FAKE_CLI = r"""#!/bin/sh
+# Fake claude-locale for the product-path restart: logs its arguments and acts on the fake app only.
+echo "$*" >> "$FAKE_STATE/cli"
+exe="$CLA_APP/Contents/MacOS/Claude"
+case " $* " in
+  *" --normal "*) pkill -f "^$exe"; exit 0 ;;
+esac
+pkill -f "^$exe"; sleep 1
+if [ "$FAKE_CLI_MODE" = started-then-failed ]; then
+  for a in "$@"; do case "$a" in --proxy-server=*) proxy="$a" ;; esac; done
+  "$exe" -c 'sleep 300; :' fake "$proxy" >/dev/null 2>&1 &
+fi
+exit 5
+"""
+
+
 def _port() -> int:
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0))
@@ -59,7 +75,10 @@ def env(tmp_path):
         f.chmod(0o755)
     app = tmp_path / "Fake Claude.app"
     (app / "Contents/MacOS").mkdir(parents=True)
-    shutil.copy("/bin/sleep", app / "Contents/MacOS/Claude")
+    # A copy of sh, so a fake instance can carry arguments (like --proxy-server) on its command line.
+    shutil.copy("/bin/sh", app / "Contents/MacOS/Claude")
+    (bin_dir / "claude-locale").write_text(FAKE_CLI)
+    (bin_dir / "claude-locale").chmod(0o755)
     return {
         **os.environ, "FAKE_STATE": str(state), "CLA_APP": str(app), "CLA_SECURITY": str(bin_dir / "security"),
         "CLA_OPEN": str(bin_dir / "open"), "CLA_KEYCHAIN": str(tmp_path / "fake.keychain-db"),
@@ -94,12 +113,13 @@ def test_cancelled_trust_prompt_removes_the_ca_and_starts_nothing(env):
 
 
 def _with_running_app(env, port, **extra):
-    app = subprocess.Popen([f"{env['CLA_APP']}/Contents/MacOS/Claude", "300"])
+    app = subprocess.Popen([f"{env['CLA_APP']}/Contents/MacOS/Claude", "-c", "sleep 300; :"])
     try:
         return _run({**env, **extra}, "Asia/Tokyo", "en-GB", str(port))
     finally:
         app.kill()
         app.wait()
+        subprocess.run(["pkill", "-f", f"^{env['CLA_APP']}/Contents/MacOS/Claude"])
 
 
 def test_desktop_not_quit_stops_only_the_owned_proxy_and_removes_the_ca(env):
@@ -141,3 +161,28 @@ def test_unreadable_verification_is_never_counted_as_removed(env, which):
     ca = Path(env["CLA_CA_DIR"])
     assert sorted(p.name for p in ca.iterdir()) == ["mitmproxy-ca-cert.pem", "sha1.txt"]
     assert not list(Path(env["CLA_WORK"]).glob("trust-settings-export*")), "the export is not left behind"
+
+
+def _proc_count(env) -> int:
+    r = subprocess.run(["pgrep", "-f", f"^{env['CLA_APP']}/Contents/MacOS/Claude"], capture_output=True, text=True)
+    return len(r.stdout.split())
+
+
+def test_cli_quit_then_failed_start_reopens_desktop_normally(env):
+    cli = str(Path(env["CLA_SECURITY"]).parent / "claude-locale")
+    r = _with_running_app({**env, "CLA_CLI": cli, "FAKE_CLI_MODE": "quit-then-failed"}, _port())
+    assert r.returncode == 1, r.stdout + r.stderr
+    calls = (Path(env["FAKE_STATE"]) / "cli").read_text().splitlines()
+    assert len(calls) == 1 and calls[0].startswith("desktop --restart"), calls
+    assert (Path(env["FAKE_STATE"]) / "open").read_text().strip() == f"-g -a {env['CLA_APP']}", "reopened normally"
+    assert not Path(env["CLA_CA_DIR"]).exists()
+
+
+def test_cli_started_then_failed_restarts_the_proxied_desktop_normally(env):
+    cli = str(Path(env["CLA_SECURITY"]).parent / "claude-locale")
+    r = _with_running_app({**env, "CLA_CLI": cli, "FAKE_CLI_MODE": "started-then-failed"}, _port())
+    assert r.returncode == 1, r.stdout + r.stderr
+    calls = (Path(env["FAKE_STATE"]) / "cli").read_text().splitlines()
+    assert calls[0].startswith("desktop --restart") and calls[-1] == "desktop --normal --restart", calls
+    assert "restarted normally" in (Path(env["CLA_WORK"]) / "restore.txt").read_text()
+    assert not Path(env["CLA_CA_DIR"]).exists()

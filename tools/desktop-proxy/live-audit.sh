@@ -59,6 +59,8 @@ work="${CLA_WORK:-$root/scratch/data/desktop-proxy/live-$stamp}"
 ( umask 077; mkdir -p "$work" )
 say() { printf '\n==> %s\n' "$*"; }
 desktop_running() { pgrep -f "^$app/Contents/MacOS/Claude( |\$)" >/dev/null 2>&1; }
+# A Desktop started by this run: it carries this run's proxy flag. Cleanup restarts only that one.
+desktop_proxied() { pgrep -f "^$app/Contents/MacOS/Claude .*--proxy-server=http://127.0.0.1:$port" >/dev/null 2>&1; }
 # wait_until_quit SECONDS: 0 once Desktop is not running, 1 at the limit.
 wait_until_quit() {
   n=0
@@ -78,7 +80,7 @@ record_app() {
 
 was_running=0; desktop_running && was_running=1
 scutil --proxy > "$work/proxy-before.txt"
-made_ca=0; proxy_pid=""; quit_seen=0; launched=0
+made_ca=0; proxy_pid=""
 
 stop_proxy() {
   [ -n "$proxy_pid" ] || return 0
@@ -157,20 +159,22 @@ cleanup() {
     else echo "system proxy settings: DIFFER from the before-state"; failed=1; fi
   } > "$work/restore.txt" 2>&1
   cat "$work/restore.txt"
-  if [ "$launched" = 1 ] && desktop_running && [ -n "$cli" ]; then
+  # Judged by the processes, not by how far the run got: the CLI may have quit Desktop and then
+  # failed to start it, or started it and then reported a failure.
+  if desktop_proxied && [ -n "$cli" ]; then
     if "$cli" desktop --normal --restart; then
-      echo "Claude Desktop restarted normally (no proxy, no profile)" | tee -a "$work/restore.txt"; quit_seen=0
+      echo "Claude Desktop restarted normally (no proxy, no profile)" | tee -a "$work/restore.txt"
     else
       echo "Desktop not restarted normally: quit it and start it yourself" | tee -a "$work/restore.txt"; failed=1
     fi
   fi
-  if [ "$launched" = 1 ] && desktop_running && [ -z "$cli" ]; then
+  if desktop_proxied && [ -z "$cli" ]; then
     say "Claude Desktop is still running with --proxy-server to the stopped proxy. Quit it (Cmd-Q); waiting up to ${quit_timeout}s."
     if ! wait_until_quit "$quit_timeout"; then
       echo "Desktop not quit: quit it and start it normally yourself" | tee -a "$work/restore.txt"; failed=1
     fi
   fi
-  if [ "$was_running" = 1 ] && [ "$quit_seen" = 1 ] && ! desktop_running; then
+  if [ "$was_running" = 1 ] && ! desktop_running; then
     "$opener" -g -a "$app" && echo "Claude Desktop started again without the proxy" | tee -a "$work/restore.txt"
   fi
   for f in "$work"/audit-*.jsonl; do
@@ -216,18 +220,14 @@ if [ -n "$cli" ]; then
   say "4/5 Restarting Claude Desktop with the profile through the proxy (claude-locale desktop --restart)"
   "$cli" desktop --restart --profile "$work/no-saved-profile.json" --tz "$zone" --locale "$locale" \
     -- --proxy-server="http://127.0.0.1:$port" || { echo "claude-locale desktop failed; stopping" >&2; exit 1; }
-  quit_seen=1
-  launched=1
   record_app
 else
   if desktop_running; then
     say "4/5 Quit Claude Desktop yourself (Cmd-Q in Claude). Save or finish anything open first. Waiting up to ${quit_timeout}s."
     wait_until_quit "$quit_timeout" || { echo "Desktop was not quit; stopping" >&2; exit 1; }
   fi
-  quit_seen=1
   record_app
   "$opener" -a "$app" --env "TZ=$zone" --args --proxy-server="http://127.0.0.1:$port" -AppleLanguages "($locale)"
-  launched=1
 fi
 sleep 10
 desktop_running || { echo "Claude Desktop exited at startup with --proxy-server (recorded as the result)" | tee "$work/startup.txt"; exit 1; }
