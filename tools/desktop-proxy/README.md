@@ -4,9 +4,9 @@ A small local tool for one job: find out which time zone and locale fields Claud
 requests actually carry. A rewrite schema is chosen only after that evidence exists, so this
 tool has **no rewrite mode**. It forwards every request and response unchanged.
 
-Status: fixture-tested (`tests/`) and run against Claude Desktop: tunnel-only on 3.1623.0, one field audit
-on 3.6556.2 (per-launch language observed in `Accept-Language`; no time zone field observed because the
-message requests were not JSON). See the
+Status: fixture-tested (`tests/`) and run against Claude Desktop: tunnel-only on 3.1623.0, two field audits
+on 3.6556.2 (per-launch time zone and locale observed in the message request; one locale field kept the
+system value). See the
 [feasibility report](../../docs/research/desktop-chat-feasibility.md#field-audit-claude-desktop-365562).
 
 ## What it records

@@ -2,11 +2,12 @@
 
 Choose the time zone and locale that Claude's client-side code reads on your Mac. MIT licensed.
 
-Covered today: **Claude Code CLI**, for processes started through the `claude-locale` wrapper, and
-**claude.ai in Chromium browsers**, through the extension. **Claude Desktop Chat is partly covered:**
+Covered today: **Claude Code CLI**, for processes started through the `claude-locale` wrapper;
+**claude.ai in Chromium browsers**, through the extension; and **Claude Desktop Chat, partly**:
 `claude-locale desktop` (or the Mac app's Restart with Profile) starts Claude Desktop with the profile's
-time zone and language for that launch. In a live test on Desktop 3.6556.2, Chat requests carried the
-profile's language; **whether Chat sends the profile's time zone is not verified yet** (see below).
+time zone and language for that launch. In live tests on Desktop 3.6556.2, Chat's message request carried
+the profile's time zone and locale, and every request the profile's `Accept-Language`; one locale field
+still carried the Mac's own language (see below).
 
 This kit changes what client code reads from the clock and language settings. It does not change
 your network address, account country, billing, or anything Anthropic determines on its servers. It
@@ -20,7 +21,7 @@ is not a way to avoid account enforcement.
 | `claude-locale` CLI (`mac/Sources/claude-locale`) | `run`: sets `TZ`, `LANG` and `LC_ALL` for the process it launches and that process's children, then `execve`s Claude Code (same PID, signals and exit status). It does not normalize other request metadata. `desktop`: starts Claude Desktop with `TZ` and `-AppleLanguages` from the profile for that launch only; quits a running Desktop normally only with `--restart`; `--normal` starts it without them |
 | Mac companion app (`mac/Sources/ClaudeLocaleKit`) | Edits and saves the profile; checks it with a test process (`/bin/date`); opens Claude Code in Terminal through the wrapper; restarts Claude Desktop with the saved profile or normally (through the CLI) |
 | Browser extension (`extension/`) | Chromium MV3, Chrome 119+. On `https://claude.ai/*` only (pages and the frames they create), it sets the page's JavaScript `Date`/`Intl`/`navigator.language(s)` and the `Accept-Language` request header. It does not reach Web Workers, the network address or the account |
-| Claude Desktop Chat | **Partly covered, Desktop 3.6556.2 only** ([feasibility](docs/research/desktop-chat-feasibility.md)). Live field audit: with the per-launch profile, every inspected Chat request carried `Accept-Language` equal to the profile's locale, and a new test chat got its reply. Time zone: not verified (the message requests are not JSON; the protobuf-aware audit has not run yet). No rewrite proxy is shipped |
+| Claude Desktop Chat | **Partly covered, tested on Desktop 3.6556.2 only** ([feasibility](docs/research/desktop-chat-feasibility.md)). Live field audits through the per-launch route: the message request carried the profile's IANA zone and locale, every inspected request the profile's `Accept-Language`, and new test chats got their replies. One locale field still carried the system locale (`en-US`); `-AppleLocale` did not change it. No rewrite proxy is shipped. Other Desktop builds may differ |
 
 Research and evidence: [audit-2026-10-20.md](docs/research/audit-2026-10-20.md).
 
@@ -62,11 +63,13 @@ The extension tests run Playwright Chromium against local fixture HTTPS servers.
 hosts resolve, and only the fixture certificate is accepted. The override test compares every case
 with native V8 running in the target zone, from three different host zones.
 
-## Desktop Chat: the remaining step
+## Desktop Chat: what was tested
 
-Verified so far, on Desktop 3.6556.2 only: the per-launch language reaches Chat requests, and Chat
-works through the audit proxy. Open: whether Chat's message requests carry a time zone, and whether it
-follows the per-launch `TZ`. Those requests are not JSON; the [audit proxy](tools/desktop-proxy/README.md)
-now parses protobuf bodies for zone and locale fields (field numbers and match flags only, never values),
-and one more field-audit run (`tools/desktop-proxy/live-audit.sh`) answers it. No rewrite is designed
-unless that evidence shows the per-launch route falls short.
+Two local field audits on Desktop 3.6556.2 (system `Asia/Shanghai`/`en-US`, profile `Asia/Tokyo`/`en-GB`),
+with the [audit proxy](tools/desktop-proxy/README.md) recording only fixed field names or protobuf field
+numbers, value kinds and match flags. Started through `claude-locale desktop`, Chat's message request
+carried the profile's time zone and locale and every request the profile's `Accept-Language`. One protobuf
+locale field kept the system's `en-US`; its source is not determined (it is not the macOS region setting).
+A newer Desktop build can change any of this; rerun `tools/desktop-proxy/live-audit.sh` to check. The audit
+needs a short-lived CA trusted in the login keychain (two macOS password prompts) and restores everything,
+checking the certificate's removal by exact hash.

@@ -68,7 +68,7 @@ struct SurfacesSection: View {
                 "Through the browser extension, after you import this profile there.",
                 symbol: "puzzlepiece.extension", tint: .secondary)
             row("Claude Desktop chat",
-                "Partly tested. Restart with Profile starts Claude Desktop with this language and time zone for that launch. In a live test, chat requests carried the profile's language; whether chat sends the profile's time zone is not verified yet.",
+                "Partly covered. Restart with Profile starts Claude Desktop with this time zone and language for that launch. In live tests (Claude Desktop 3.6556.2), chat requests carried them; one language field still carried your Mac's own language.",
                 symbol: "minus.circle", tint: Palette.warn)
         } header: {
             Text("Where this applies")
